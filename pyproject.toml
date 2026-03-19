@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-pdf-workbench"
+version = "0.1.0"
+description = "Agent-aware PDF workspace with observable user actions for AI-assisted reading."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Scientific Tooling" }]
+dependencies = []
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0.0"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

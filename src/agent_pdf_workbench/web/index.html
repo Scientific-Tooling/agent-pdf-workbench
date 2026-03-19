@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent PDF Workbench</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <section class="panel controls">
+        <h1>Agent PDF Workbench</h1>
+        <label>
+          Paper Ref
+          <input id="paperRef" value="p_demo_001" />
+        </label>
+        <label>
+          PDF URI (local path or URL)
+          <input id="pdfUri" value="/tmp/paper.pdf" />
+        </label>
+        <div class="row">
+          <button id="openPaperBtn">Open Paper</button>
+          <button id="closePaperBtn">Close Session</button>
+        </div>
+        <p id="sessionInfo">Session: -</p>
+        <p id="statusText">Status: idle</p>
+      </section>
+
+      <section class="panel reader">
+        <div class="toolbar">
+          <button id="prevBtn">Prev Page</button>
+          <span id="pageInfo">Page - / -</span>
+          <button id="nextBtn">Next Page</button>
+        </div>
+        <canvas id="pdfCanvas"></canvas>
+        <div class="actions">
+          <button id="highlightBtn">Highlight Selection</button>
+          <input id="commentInput" placeholder="Comment on current page" />
+          <button id="commentBtn">Add Comment</button>
+        </div>
+        <h2>Selectable Text (current page)</h2>
+        <div id="textContent" class="text-content"></div>
+      </section>
+
+      <section class="panel timeline">
+        <div class="timeline-head">
+          <h2>Action Timeline</h2>
+          <button id="refreshBtn">Refresh</button>
+        </div>
+        <ul id="eventsList"></ul>
+      </section>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

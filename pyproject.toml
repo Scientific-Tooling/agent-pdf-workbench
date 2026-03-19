@@ -14,8 +14,16 @@ dependencies = []
 [project.optional-dependencies]
 mcp = ["mcp>=1.0.0"]
 
+[project.scripts]
+apw-dev = "agent_pdf_workbench.dev_cli:main"
+apw-viewer-server = "agent_pdf_workbench.viewer_server:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
+include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+agent_pdf_workbench = ["web/*.html", "web/*.js", "web/*.css"]

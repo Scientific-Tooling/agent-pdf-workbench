@@ -20,10 +20,10 @@ Current repo focus:
 - stable Python service API
 - MCP server entrypoint (for Codex/Claude tool integration)
 - minimal dev CLI for local testing
+- local PDF.js-based viewer server with event capture
 
 Future scope:
 
-- browser-based PDF viewer (PDF.js)
 - real-time sync and presence
 - richer annotation model
 - integration adapter for RKS (`paper_id -> pdf_uri`)
@@ -31,8 +31,8 @@ Future scope:
 ## Quick start
 
 ```bash
-python3 -m unittest discover -s tests -p "test_*.py"
-python3 -m agent_pdf_workbench.dev_cli open-paper --paper-ref "10.48550/arXiv.1706.03762" --pdf-uri "/tmp/paper.pdf"
+PYTHONPATH=src python3 -m unittest discover -s tests -p "test_*.py"
+PYTHONPATH=src python3 -m agent_pdf_workbench.dev_cli --db-path /tmp/apw/events.db open-paper --paper-ref "10.48550/arXiv.1706.03762" --pdf-uri "/tmp/paper.pdf"
 ```
 
 ## MCP integration
@@ -48,6 +48,28 @@ Exposed tools (v0):
 - `open_paper`
 - `record_action`
 - `list_actions`
+- `close_paper`
+
+## PDF viewer (v0)
+
+Run local server:
+
+```bash
+PYTHONPATH=src python3 -m agent_pdf_workbench.viewer_server --db-path /tmp/apw/events.db --port 8790
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8790
+```
+
+Current viewer events:
+
+- `page_change`
+- `highlight` (manual selection from extracted text panel)
+- `copy` (copy action on extracted text panel)
+- `comment`
 
 ## Project layout
 
@@ -57,6 +79,8 @@ src/agent_pdf_workbench/
   service.py      # tool-facing service layer
   dev_cli.py      # local smoke-test CLI
   mcp_server.py   # MCP server entrypoint
+  viewer_server.py # local web UI/API server
+  web/            # viewer frontend files
 tests/
   test_store.py
 ```

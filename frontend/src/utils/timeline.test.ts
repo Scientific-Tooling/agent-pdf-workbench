@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildEventLines, createEventListItem } from "./timeline";
-import type { ActionEvent } from "./types";
+import type { ActionEvent } from "../types/types";
 
 function sampleEvent(overrides: Partial<ActionEvent> = {}): ActionEvent {
   return {

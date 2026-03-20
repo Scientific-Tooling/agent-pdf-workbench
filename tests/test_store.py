@@ -101,6 +101,102 @@ class EventStoreTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "after_id must be >= 0"):
                 store.list_events(session_id="ps_0004", after_id=-1)
 
+    def test_annotation_and_note_crud(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "events.db"
+            store = EventStore(db_path)
+            store.open_session(
+                session_id="ps_1001",
+                paper_ref="p_1001",
+                pdf_uri="/tmp/paper.pdf",
+                agent_id="agent:test",
+                user_id="user:test",
+            )
+
+            ann = store.upsert_annotation(
+                session_id="ps_1001",
+                annotation={
+                    "id": "ann_1",
+                    "page": 2,
+                    "type": "highlight",
+                    "quote": "attention is all you need",
+                    "comment": "core idea",
+                    "tags": ["idea"],
+                    "rects": [{"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.1}],
+                },
+            )
+            self.assertEqual(ann.id, "ann_1")
+            self.assertEqual(ann.annotation["quote"], "attention is all you need")
+
+            ann_updated = store.upsert_annotation(
+                session_id="ps_1001",
+                annotation={
+                    "id": "ann_1",
+                    "page": 2,
+                    "type": "highlight",
+                    "quote": "attention is all you need",
+                    "comment": "updated",
+                    "tags": ["idea", "todo"],
+                    "rects": [{"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.1}],
+                },
+            )
+            self.assertEqual(ann_updated.annotation["comment"], "updated")
+            annotations = store.list_annotations(session_id="ps_1001", limit=10)
+            self.assertEqual(len(annotations), 1)
+            self.assertEqual(annotations[0].id, "ann_1")
+
+            note = store.upsert_note(
+                session_id="ps_1001",
+                note={
+                    "id": "note_1",
+                    "title": "note title",
+                    "markdown": "content",
+                    "linkedAnnotationIds": ["ann_1"],
+                },
+            )
+            self.assertEqual(note.id, "note_1")
+
+            notes = store.list_notes(session_id="ps_1001", limit=10)
+            self.assertEqual(len(notes), 1)
+            self.assertEqual(notes[0].note["linkedAnnotationIds"], ["ann_1"])
+
+            self.assertTrue(store.delete_annotation(session_id="ps_1001", annotation_id="ann_1"))
+            self.assertEqual(store.list_annotations(session_id="ps_1001", limit=10), [])
+            self.assertFalse(store.delete_annotation(session_id="ps_1001", annotation_id="missing"))
+
+            self.assertTrue(store.delete_note(session_id="ps_1001", note_id="note_1"))
+            self.assertEqual(store.list_notes(session_id="ps_1001", limit=10), [])
+            self.assertFalse(store.delete_note(session_id="ps_1001", note_id="missing"))
+
+    def test_closed_session_rejects_annotation_and_note_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "events.db"
+            store = EventStore(db_path)
+            store.open_session(
+                session_id="ps_1002",
+                paper_ref="p_1002",
+                pdf_uri="/tmp/paper.pdf",
+                agent_id="agent:test",
+                user_id="user:test",
+            )
+            store.close_session("ps_1002")
+
+            with self.assertRaisesRegex(ValueError, "Session is closed"):
+                store.upsert_annotation(
+                    session_id="ps_1002",
+                    annotation={"id": "ann_x", "page": 1, "type": "highlight", "rects": []},
+                )
+            with self.assertRaisesRegex(ValueError, "Session is closed"):
+                store.delete_annotation(session_id="ps_1002", annotation_id="ann_x")
+
+            with self.assertRaisesRegex(ValueError, "Session is closed"):
+                store.upsert_note(
+                    session_id="ps_1002",
+                    note={"id": "note_x", "title": "", "markdown": "", "linkedAnnotationIds": []},
+                )
+            with self.assertRaisesRegex(ValueError, "Session is closed"):
+                store.delete_note(session_id="ps_1002", note_id="note_x")
+
 
 if __name__ == "__main__":
     unittest.main()

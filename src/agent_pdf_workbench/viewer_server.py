@@ -4,9 +4,12 @@ import argparse
 import json
 import mimetypes
 import os
+import socket
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.error import HTTPError
+from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
 
@@ -79,6 +82,36 @@ def _create_handler(
                     after_id = int(after_raw) if after_raw is not None else None
                     limit = int(limit_raw) if limit_raw is not None else 100
                     payload = service.list_actions(session_id=session_id, after_id=after_id, limit=limit)
+                except ValueError as exc:
+                    _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                    return
+                _json_response(self, payload)
+                return
+
+            if path == "/api/annotations":
+                session_id = query.get("session_id", [None])[0]
+                if not session_id:
+                    _json_response(self, {"error": "session_id is required"}, status=HTTPStatus.BAD_REQUEST)
+                    return
+                limit_raw = query.get("limit", [1000])[0]
+                try:
+                    limit = int(limit_raw) if limit_raw is not None else 1000
+                    payload = service.list_annotations(session_id=session_id, limit=limit)
+                except ValueError as exc:
+                    _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                    return
+                _json_response(self, payload)
+                return
+
+            if path == "/api/notes":
+                session_id = query.get("session_id", [None])[0]
+                if not session_id:
+                    _json_response(self, {"error": "session_id is required"}, status=HTTPStatus.BAD_REQUEST)
+                    return
+                limit_raw = query.get("limit", [1000])[0]
+                try:
+                    limit = int(limit_raw) if limit_raw is not None else 1000
+                    payload = service.list_notes(session_id=session_id, limit=limit)
                 except ValueError as exc:
                     _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
                     return
@@ -161,6 +194,90 @@ def _create_handler(
                 _json_response(self, payload)
                 return
 
+            if path == "/api/annotations":
+                session_id = body.get("session_id")
+                annotation = body.get("annotation")
+                if not session_id:
+                    _json_response(self, {"error": "missing field: session_id"}, status=HTTPStatus.BAD_REQUEST)
+                    return
+                if not isinstance(annotation, dict):
+                    _json_response(
+                        self,
+                        {"error": "missing field: annotation"},
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+                try:
+                    payload = service.upsert_annotation(session_id=session_id, annotation=annotation)
+                except ValueError as exc:
+                    _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                    return
+                _json_response(self, payload, status=HTTPStatus.CREATED)
+                return
+
+            if path == "/api/annotations/delete":
+                session_id = body.get("session_id")
+                annotation_id = body.get("annotation_id")
+                if not session_id:
+                    _json_response(self, {"error": "missing field: session_id"}, status=HTTPStatus.BAD_REQUEST)
+                    return
+                if not isinstance(annotation_id, str):
+                    _json_response(
+                        self,
+                        {"error": "missing field: annotation_id"},
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+                try:
+                    payload = service.delete_annotation(session_id=session_id, annotation_id=annotation_id)
+                except ValueError as exc:
+                    _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                    return
+                _json_response(self, payload)
+                return
+
+            if path == "/api/notes":
+                session_id = body.get("session_id")
+                note = body.get("note")
+                if not session_id:
+                    _json_response(self, {"error": "missing field: session_id"}, status=HTTPStatus.BAD_REQUEST)
+                    return
+                if not isinstance(note, dict):
+                    _json_response(
+                        self,
+                        {"error": "missing field: note"},
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+                try:
+                    payload = service.upsert_note(session_id=session_id, note=note)
+                except ValueError as exc:
+                    _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                    return
+                _json_response(self, payload, status=HTTPStatus.CREATED)
+                return
+
+            if path == "/api/notes/delete":
+                session_id = body.get("session_id")
+                note_id = body.get("note_id")
+                if not session_id:
+                    _json_response(self, {"error": "missing field: session_id"}, status=HTTPStatus.BAD_REQUEST)
+                    return
+                if not isinstance(note_id, str):
+                    _json_response(
+                        self,
+                        {"error": "missing field: note_id"},
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+                try:
+                    payload = service.delete_note(session_id=session_id, note_id=note_id)
+                except ValueError as exc:
+                    _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                    return
+                _json_response(self, payload)
+                return
+
             _text_response(self, "Not Found", HTTPStatus.NOT_FOUND)
 
         def log_message(self, fmt: str, *args) -> None:
@@ -195,9 +312,24 @@ def _create_handler(
                         status=HTTPStatus.FORBIDDEN,
                     )
                     return
-                with urlopen(uri, timeout=15) as resp:  # noqa: S310 - intended for configurable viewer source.
-                    content = resp.read()
-                    content_type = resp.headers.get_content_type() or "application/pdf"
+                try:
+                    with urlopen(uri, timeout=15) as resp:  # noqa: S310 - intended for configurable viewer source.
+                        content = resp.read()
+                        content_type = resp.headers.get_content_type() or "application/pdf"
+                except HTTPError as exc:
+                    _json_response(
+                        self,
+                        {"error": f"remote PDF fetch failed: upstream HTTP {exc.code}"},
+                        status=HTTPStatus.BAD_GATEWAY,
+                    )
+                    return
+                except (URLError, socket.timeout, TimeoutError, OSError) as exc:
+                    _json_response(
+                        self,
+                        {"error": f"remote PDF fetch failed: {exc}"},
+                        status=HTTPStatus.BAD_GATEWAY,
+                    )
+                    return
             else:
                 file_path = Path(uri).expanduser()
                 if not file_path.is_absolute():

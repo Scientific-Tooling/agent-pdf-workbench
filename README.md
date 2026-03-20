@@ -11,12 +11,14 @@ Traditional PDF readers do not expose user interactions to an AI agent. This pro
 - explicit paper sessions (`open_paper`)
 - structured user interaction events (`record_action`)
 - event replay for agent grounding (`list_actions`)
+- durable annotation/note state via service-side CRUD APIs
 
 ## Scope
 
 Current repo focus:
 
 - local event store (SQLite)
+- server-side annotation/note CRUD store (SQLite)
 - stable Python service API
 - MCP server entrypoint (for Codex/Claude tool integration)
 - minimal dev CLI for local testing
@@ -41,12 +43,12 @@ Full walkthrough:
 
 ## Frontend development
 
-The viewer frontend is now engineered with `Vite + TypeScript`.
+The viewer frontend is now engineered with `Vite + React + TypeScript`.
 
 Source of truth:
 
 - `frontend/index.html`
-- `frontend/src/*.ts`
+- `frontend/src/*.{ts,tsx}`
 - `frontend/src/styles.css`
 
 Build output served by Python:
@@ -60,11 +62,17 @@ Commands:
 ```bash
 npm install
 npm run format:check
-npm run lint
-npm run test
-npm run typecheck
-npm run build
-npm run check
+npm run test:unit
+npm run test:e2e
+npm run test:python
+npm run check:frontend
+npm run verify
+```
+
+Playwright browser setup (first time only):
+
+```bash
+npx playwright install chromium
 ```
 
 For local frontend dev with hot reload:
@@ -125,7 +133,6 @@ Current viewer events:
 
 - `page_change`
 - `zoom_change`
-- `highlight` (manual selection from PDF text layer)
 - `copy` (copy action on PDF text layer)
 - `comment`
 - `annotation_upsert`
@@ -138,9 +145,26 @@ Current viewer workflow features for literature reading:
 - zoom, page jump, outline navigation, and keyboard shortcuts (`j/k/f`)
 - full-text search with result list and jump
 - in-PDF text-layer annotations (highlight/underline) with comments and tags
+- robust text anchors (`start/end/prefix/suffix`) with rectangle fallback for rendering
 - markdown notes linked to annotation IDs (back-link to evidence)
 - export reading outputs as JSON and Markdown
 - reading progress + recent papers (local persistence)
+
+HTTP API additions for domain state:
+
+- `GET /api/annotations?session_id=...&limit=...`
+- `POST /api/annotations` (`{session_id, annotation}`)
+- `POST /api/annotations/delete` (`{session_id, annotation_id}`)
+- `GET /api/notes?session_id=...&limit=...`
+- `POST /api/notes` (`{session_id, note}`)
+- `POST /api/notes/delete` (`{session_id, note_id}`)
+
+E2E main-path test:
+
+```bash
+PYTHONPATH=src python3 -m unittest tests.test_viewer_server.ViewerServerApiE2ETest
+npm run test:e2e
+```
 
 ## Project layout
 

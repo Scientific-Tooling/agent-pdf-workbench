@@ -1,4 +1,4 @@
-import type { ReadingProgress, RecentPaper } from "./types";
+import type { ReadingProgress, RecentPaper } from "../types/types";
 
 const PROGRESS_KEY = "apw:reading-progress:v1";
 const RECENT_KEY = "apw:recent-papers:v1";

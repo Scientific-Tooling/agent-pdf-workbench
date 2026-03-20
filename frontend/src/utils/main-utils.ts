@@ -1,0 +1,32 @@
+export function nowIso(): string {
+  return new Date().toISOString();
+}
+
+export function uid(prefix: string): string {
+  return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
+}
+
+export function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return "Unknown error";
+}
+
+export function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+export function parseTags(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+export function parseLinkedIds(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}

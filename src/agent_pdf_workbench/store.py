@@ -47,6 +47,24 @@ class ActionEvent:
     created_at: str
 
 
+@dataclass(frozen=True)
+class AnnotationRecord:
+    id: str
+    session_id: str
+    annotation: dict[str, Any]
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
+class NoteRecord:
+    id: str
+    session_id: str
+    note: dict[str, Any]
+    created_at: str
+    updated_at: str
+
+
 class EventStore:
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
@@ -87,6 +105,32 @@ class EventStore:
 
                 CREATE INDEX IF NOT EXISTS idx_action_events_session_id_id
                     ON action_events(session_id, id);
+
+                CREATE TABLE IF NOT EXISTS annotations (
+                    session_id TEXT NOT NULL,
+                    annotation_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (session_id, annotation_id),
+                    FOREIGN KEY (session_id) REFERENCES paper_sessions(id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_annotations_session_updated_at
+                    ON annotations(session_id, updated_at DESC);
+
+                CREATE TABLE IF NOT EXISTS notes (
+                    session_id TEXT NOT NULL,
+                    note_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (session_id, note_id),
+                    FOREIGN KEY (session_id) REFERENCES paper_sessions(id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_notes_session_updated_at
+                    ON notes(session_id, updated_at DESC);
                 """
             )
 
@@ -205,6 +249,176 @@ class EventStore:
                 ).fetchall()
         return [self._event_from_row(row) for row in rows]
 
+    def upsert_annotation(self, *, session_id: str, annotation: dict[str, Any]) -> AnnotationRecord:
+        session = self.get_session(session_id)
+        if session.closed_at is not None:
+            raise ValueError(f"Session is closed: {session_id}")
+
+        annotation_id = annotation.get("id")
+        if not isinstance(annotation_id, str) or not annotation_id.strip():
+            raise ValueError("annotation.id must be a non-empty string")
+
+        now = _utc_now()
+        payload_json = json.dumps(annotation, ensure_ascii=True)
+        with self._connect() as conn:
+            existing = conn.execute(
+                """
+                SELECT created_at
+                FROM annotations
+                WHERE session_id = ? AND annotation_id = ?
+                """,
+                (session_id, annotation_id),
+            ).fetchone()
+            if existing is None:
+                conn.execute(
+                    """
+                    INSERT INTO annotations (
+                        session_id, annotation_id, payload_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (session_id, annotation_id, payload_json, now, now),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE annotations
+                    SET payload_json = ?, updated_at = ?
+                    WHERE session_id = ? AND annotation_id = ?
+                    """,
+                    (payload_json, now, session_id, annotation_id),
+                )
+            row = conn.execute(
+                """
+                SELECT * FROM annotations
+                WHERE session_id = ? AND annotation_id = ?
+                """,
+                (session_id, annotation_id),
+            ).fetchone()
+        if row is None:
+            raise RuntimeError("Failed to upsert annotation.")
+        return self._annotation_from_row(row)
+
+    def list_annotations(
+        self,
+        *,
+        session_id: str,
+        limit: int = DEFAULT_LIST_LIMIT,
+    ) -> list[AnnotationRecord]:
+        self.get_session(session_id)
+        validated_limit = _validate_limit(limit)
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM annotations
+                WHERE session_id = ?
+                ORDER BY updated_at DESC, annotation_id ASC
+                LIMIT ?
+                """,
+                (session_id, validated_limit),
+            ).fetchall()
+        return [self._annotation_from_row(row) for row in rows]
+
+    def delete_annotation(self, *, session_id: str, annotation_id: str) -> bool:
+        session = self.get_session(session_id)
+        if session.closed_at is not None:
+            raise ValueError(f"Session is closed: {session_id}")
+        if not annotation_id.strip():
+            raise ValueError("annotation_id must be a non-empty string")
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                DELETE FROM annotations
+                WHERE session_id = ? AND annotation_id = ?
+                """,
+                (session_id, annotation_id),
+            )
+        return cur.rowcount > 0
+
+    def upsert_note(self, *, session_id: str, note: dict[str, Any]) -> NoteRecord:
+        session = self.get_session(session_id)
+        if session.closed_at is not None:
+            raise ValueError(f"Session is closed: {session_id}")
+
+        note_id = note.get("id")
+        if not isinstance(note_id, str) or not note_id.strip():
+            raise ValueError("note.id must be a non-empty string")
+
+        now = _utc_now()
+        payload_json = json.dumps(note, ensure_ascii=True)
+        with self._connect() as conn:
+            existing = conn.execute(
+                """
+                SELECT created_at
+                FROM notes
+                WHERE session_id = ? AND note_id = ?
+                """,
+                (session_id, note_id),
+            ).fetchone()
+            if existing is None:
+                conn.execute(
+                    """
+                    INSERT INTO notes (
+                        session_id, note_id, payload_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (session_id, note_id, payload_json, now, now),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE notes
+                    SET payload_json = ?, updated_at = ?
+                    WHERE session_id = ? AND note_id = ?
+                    """,
+                    (payload_json, now, session_id, note_id),
+                )
+            row = conn.execute(
+                """
+                SELECT * FROM notes
+                WHERE session_id = ? AND note_id = ?
+                """,
+                (session_id, note_id),
+            ).fetchone()
+        if row is None:
+            raise RuntimeError("Failed to upsert note.")
+        return self._note_from_row(row)
+
+    def list_notes(
+        self,
+        *,
+        session_id: str,
+        limit: int = DEFAULT_LIST_LIMIT,
+    ) -> list[NoteRecord]:
+        self.get_session(session_id)
+        validated_limit = _validate_limit(limit)
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM notes
+                WHERE session_id = ?
+                ORDER BY updated_at DESC, note_id ASC
+                LIMIT ?
+                """,
+                (session_id, validated_limit),
+            ).fetchall()
+        return [self._note_from_row(row) for row in rows]
+
+    def delete_note(self, *, session_id: str, note_id: str) -> bool:
+        session = self.get_session(session_id)
+        if session.closed_at is not None:
+            raise ValueError(f"Session is closed: {session_id}")
+        if not note_id.strip():
+            raise ValueError("note_id must be a non-empty string")
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                DELETE FROM notes
+                WHERE session_id = ? AND note_id = ?
+                """,
+                (session_id, note_id),
+            )
+        return cur.rowcount > 0
+
     @staticmethod
     def _session_from_row(row: sqlite3.Row) -> PaperSession:
         return PaperSession(
@@ -229,4 +443,24 @@ class EventStore:
             payload=json.loads(row["payload_json"] or "{}"),
             source=row["source"],
             created_at=row["created_at"],
+        )
+
+    @staticmethod
+    def _annotation_from_row(row: sqlite3.Row) -> AnnotationRecord:
+        return AnnotationRecord(
+            id=row["annotation_id"],
+            session_id=row["session_id"],
+            annotation=json.loads(row["payload_json"] or "{}"),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    @staticmethod
+    def _note_from_row(row: sqlite3.Row) -> NoteRecord:
+        return NoteRecord(
+            id=row["note_id"],
+            session_id=row["session_id"],
+            note=json.loads(row["payload_json"] or "{}"),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
         )

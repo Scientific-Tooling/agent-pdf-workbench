@@ -41,11 +41,20 @@ export interface NormalizedRect {
   height: number;
 }
 
+export interface TextAnchor {
+  quote: string;
+  start: number | null;
+  end: number | null;
+  prefix: string;
+  suffix: string;
+}
+
 export interface Annotation {
   id: string;
   page: number;
   type: AnnotationType;
   quote: string;
+  anchor: TextAnchor | null;
   comment: string;
   tags: string[];
   rects: NormalizedRect[];
@@ -60,6 +69,34 @@ export interface Note {
   linkedAnnotationIds: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AnnotationRecord {
+  id: string;
+  session_id: string;
+  annotation: Annotation;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NoteRecord {
+  id: string;
+  session_id: string;
+  note: Note;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListAnnotationsResponse {
+  session_id: string;
+  count: number;
+  annotations: AnnotationRecord[];
+}
+
+export interface ListNotesResponse {
+  session_id: string;
+  count: number;
+  notes: NoteRecord[];
 }
 
 export interface SearchResult {

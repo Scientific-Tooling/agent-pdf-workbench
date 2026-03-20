@@ -11,11 +11,16 @@ export default [
     ignores: ["node_modules/**", "src/agent_pdf_workbench/web/**"],
   },
   {
-    files: ["frontend/src/**/*.ts"],
+    files: ["frontend/src/**/*.{ts,tsx}"],
     languageOptions: {
       parser: tsParser,
       ecmaVersion: "latest",
       sourceType: "module",
+      parserOptions: {
+        ecmaFeatures: {
+          jsx: true,
+        },
+      },
       globals: {
         ...globals.browser,
       },

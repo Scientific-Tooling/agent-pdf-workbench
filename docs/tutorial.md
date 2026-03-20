@@ -28,11 +28,17 @@ The frontend source is in `frontend/` and is built into `src/agent_pdf_workbench
 ```bash
 npm install
 npm run format:check
-npm run lint
-npm run test
-npm run typecheck
-npm run build
-npm run check
+npm run test:unit
+npm run test:e2e
+npm run test:python
+npm run check:frontend
+npm run verify
+```
+
+Playwright browser setup (first time):
+
+```bash
+npx playwright install chromium
 ```
 
 For hot-reload development:
@@ -133,7 +139,6 @@ http://127.0.0.1:8790
 
 - `page_change`
 - `zoom_change`
-- `highlight` (selected text on PDF text layer)
 - `copy` (selected text on PDF text layer)
 - `comment`
 - `annotation_upsert`
@@ -150,9 +155,10 @@ These actions appear in the timeline and are persisted to SQLite.
 3. Use search bar for full-text search and jump through hits.
 4. Select text on PDF text layer, then click `Highlight` or `Underline`.
 5. Add annotation comments/tags, and manage annotations from the right panel.
-6. Write Markdown notes and link them to annotation IDs.
-7. Export outputs via `Export JSON` or `Export Markdown`.
-8. Resume quickly from `Recent Papers` (progress is kept locally).
+6. Annotation rendering is anchor-first (`quote + start/end + prefix/suffix`) with rect fallback.
+7. Write Markdown notes and link them to annotation IDs.
+8. Export outputs via `Export JSON` or `Export Markdown`.
+9. Resume quickly from `Recent Papers` (progress is kept locally).
 
 Keyboard shortcuts:
 
@@ -194,7 +200,43 @@ curl -s -X POST http://127.0.0.1:8790/api/record-action \
 curl -s "http://127.0.0.1:8790/api/list-actions?session_id=SESSION_ID&limit=100"
 ```
 
-### 5.5 Close session
+### 5.5 Upsert/List/Delete annotation
+
+```bash
+curl -s -X POST http://127.0.0.1:8790/api/annotations \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"SESSION_ID","annotation":{"id":"ann_1","page":1,"type":"highlight","quote":"attention","anchor":{"quote":"attention","start":10,"end":19,"prefix":"...","suffix":"..."},"comment":"important","tags":["core"],"rects":[{"x":0.1,"y":0.2,"width":0.3,"height":0.1}],"createdAt":"2026-03-20T12:00:00+00:00","updatedAt":"2026-03-20T12:00:00+00:00"}}'
+```
+
+```bash
+curl -s "http://127.0.0.1:8790/api/annotations?session_id=SESSION_ID&limit=100"
+```
+
+```bash
+curl -s -X POST http://127.0.0.1:8790/api/annotations/delete \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"SESSION_ID","annotation_id":"ann_1"}'
+```
+
+### 5.6 Upsert/List/Delete note
+
+```bash
+curl -s -X POST http://127.0.0.1:8790/api/notes \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"SESSION_ID","note":{"id":"note_1","title":"intro","markdown":"text","linkedAnnotationIds":["ann_1"],"createdAt":"2026-03-20T12:00:00+00:00","updatedAt":"2026-03-20T12:00:00+00:00"}}'
+```
+
+```bash
+curl -s "http://127.0.0.1:8790/api/notes?session_id=SESSION_ID&limit=100"
+```
+
+```bash
+curl -s -X POST http://127.0.0.1:8790/api/notes/delete \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"SESSION_ID","note_id":"note_1"}'
+```
+
+### 5.7 Close session
 
 ```bash
 curl -s -X POST http://127.0.0.1:8790/api/close-paper \
@@ -235,3 +277,12 @@ export APW_DB_PATH=/tmp/apw/events.db
 - `Session is closed`: reopen a new session before recording more actions.
 - `limit must be >= 1` or `<= 1000`: use a valid `limit` range.
 - `remote PDF fetch is disabled`: start viewer with `--allow-remote-pdf` if needed.
+
+## 8. E2E Main Path
+
+Run the API main-path e2e test:
+
+```bash
+PYTHONPATH=src python3 -m unittest tests.test_viewer_server.ViewerServerApiE2ETest
+npm run test:e2e
+```

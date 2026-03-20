@@ -1,4 +1,4 @@
-import type { ActionEvent } from "./types";
+import type { ActionEvent } from "../types/types";
 
 export function buildEventLines(event: ActionEvent): string[] {
   const line1 = `${event.id} | ${event.event_type} | p.${event.page ?? "-"} | ${event.created_at}`;

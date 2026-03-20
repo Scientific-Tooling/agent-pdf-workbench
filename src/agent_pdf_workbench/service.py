@@ -61,3 +61,35 @@ class AgentPdfWorkbenchService:
     def close_paper(self, *, session_id: str) -> dict:
         session = self._store.close_session(session_id)
         return asdict(session)
+
+    def upsert_annotation(self, *, session_id: str, annotation: dict) -> dict:
+        record = self._store.upsert_annotation(session_id=session_id, annotation=annotation)
+        return asdict(record)
+
+    def list_annotations(self, *, session_id: str, limit: int = 100) -> dict:
+        records = self._store.list_annotations(session_id=session_id, limit=limit)
+        return {
+            "session_id": session_id,
+            "count": len(records),
+            "annotations": [asdict(record) for record in records],
+        }
+
+    def delete_annotation(self, *, session_id: str, annotation_id: str) -> dict:
+        deleted = self._store.delete_annotation(session_id=session_id, annotation_id=annotation_id)
+        return {"session_id": session_id, "annotation_id": annotation_id, "deleted": deleted}
+
+    def upsert_note(self, *, session_id: str, note: dict) -> dict:
+        record = self._store.upsert_note(session_id=session_id, note=note)
+        return asdict(record)
+
+    def list_notes(self, *, session_id: str, limit: int = 100) -> dict:
+        records = self._store.list_notes(session_id=session_id, limit=limit)
+        return {
+            "session_id": session_id,
+            "count": len(records),
+            "notes": [asdict(record) for record in records],
+        }
+
+    def delete_note(self, *, session_id: str, note_id: str) -> dict:
+        deleted = self._store.delete_note(session_id=session_id, note_id=note_id)
+        return {"session_id": session_id, "note_id": note_id, "deleted": deleted}

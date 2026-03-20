@@ -1,0 +1,4 @@
+interface:
+  display_name: "APW Open PDF Session"
+  short_description: "Open PDFs in Agent PDF Workbench"
+  default_prompt: "Use $apw-open-pdf-session to open a PDF in Agent PDF Workbench and return the session details."

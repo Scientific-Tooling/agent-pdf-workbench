@@ -7,9 +7,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+DEFAULT_LIST_LIMIT = 100
+MAX_LIST_LIMIT = 1000
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _validate_limit(limit: int) -> int:
+    if limit < 1:
+        raise ValueError("limit must be >= 1")
+    if limit > MAX_LIST_LIMIT:
+        raise ValueError(f"limit must be <= {MAX_LIST_LIMIT}")
+    return limit
 
 
 @dataclass(frozen=True)
@@ -137,8 +148,9 @@ class EventStore:
         payload: dict[str, Any] | None = None,
         source: str = "viewer",
     ) -> ActionEvent:
-        # Validate session existence early to keep error semantics stable.
-        self.get_session(session_id)
+        session = self.get_session(session_id)
+        if session.closed_at is not None:
+            raise ValueError(f"Session is closed: {session_id}")
         now = _utc_now()
         payload_json = json.dumps(payload or {}, ensure_ascii=True)
         with self._connect() as conn:
@@ -164,9 +176,12 @@ class EventStore:
         *,
         session_id: str,
         after_id: int | None = None,
-        limit: int = 100,
+        limit: int = DEFAULT_LIST_LIMIT,
     ) -> list[ActionEvent]:
         self.get_session(session_id)
+        validated_limit = _validate_limit(limit)
+        if after_id is not None and after_id < 0:
+            raise ValueError("after_id must be >= 0")
         with self._connect() as conn:
             if after_id is None:
                 rows = conn.execute(
@@ -176,7 +191,7 @@ class EventStore:
                     ORDER BY id ASC
                     LIMIT ?
                     """,
-                    (session_id, limit),
+                    (session_id, validated_limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
@@ -186,7 +201,7 @@ class EventStore:
                     ORDER BY id ASC
                     LIMIT ?
                     """,
-                    (session_id, after_id, limit),
+                    (session_id, after_id, validated_limit),
                 ).fetchall()
         return [self._event_from_row(row) for row in rows]
 

@@ -62,6 +62,45 @@ class EventStoreTest(unittest.TestCase):
             closed = store.close_session("ps_0002")
             self.assertIsNotNone(closed.closed_at)
 
+    def test_closed_session_rejects_new_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "events.db"
+            store = EventStore(db_path)
+            store.open_session(
+                session_id="ps_0003",
+                paper_ref="p_000003",
+                pdf_uri="/tmp/source.pdf",
+                agent_id="agent:test",
+                user_id="user:test",
+            )
+            store.close_session("ps_0003")
+            with self.assertRaisesRegex(ValueError, "Session is closed"):
+                store.append_event(
+                    session_id="ps_0003",
+                    event_type="comment",
+                    payload={"text": "should fail"},
+                )
+
+    def test_list_events_validates_limit_and_after_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "events.db"
+            store = EventStore(db_path)
+            store.open_session(
+                session_id="ps_0004",
+                paper_ref="p_000004",
+                pdf_uri="/tmp/source.pdf",
+                agent_id="agent:test",
+                user_id="user:test",
+            )
+            store.append_event(session_id="ps_0004", event_type="highlight")
+
+            with self.assertRaisesRegex(ValueError, "limit must be >= 1"):
+                store.list_events(session_id="ps_0004", limit=0)
+            with self.assertRaisesRegex(ValueError, "limit must be <= 1000"):
+                store.list_events(session_id="ps_0004", limit=1001)
+            with self.assertRaisesRegex(ValueError, "after_id must be >= 0"):
+                store.list_events(session_id="ps_0004", after_id=-1)
+
 
 if __name__ == "__main__":
     unittest.main()

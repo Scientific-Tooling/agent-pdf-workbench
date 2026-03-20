@@ -35,6 +35,22 @@ PYTHONPATH=src python3 -m unittest discover -s tests -p "test_*.py"
 PYTHONPATH=src python3 -m agent_pdf_workbench.dev_cli --db-path /tmp/apw/events.db open-paper --paper-ref "10.48550/arXiv.1706.03762" --pdf-uri "/tmp/paper.pdf"
 ```
 
+Full walkthrough:
+
+- [docs/tutorial.md](docs/tutorial.md)
+
+## Agent skill
+
+This repo now includes a reusable skill for agents that need to open a PDF in this app:
+
+- [skills/apw-open-pdf-session/SKILL.md](skills/apw-open-pdf-session/SKILL.md)
+
+Example invocation:
+
+```text
+Use $apw-open-pdf-session to open /tmp/paper.pdf with paper_ref 10.48550/arXiv.1706.03762 and return the session id.
+```
+
 ## MCP integration
 
 When `mcp` package is installed, run:
@@ -57,6 +73,11 @@ Run local server:
 ```bash
 PYTHONPATH=src python3 -m agent_pdf_workbench.viewer_server --db-path /tmp/apw/events.db --port 8790
 ```
+
+Security defaults:
+
+- remote PDF fetch is disabled by default; enable explicitly with `--allow-remote-pdf` or `APW_ALLOW_REMOTE_PDF=1`
+- optionally constrain local PDF access with `--pdf-root /path/to/pdfs` (or `APW_PDF_ROOT`)
 
 Then open:
 

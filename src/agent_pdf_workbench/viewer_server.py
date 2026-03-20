@@ -34,7 +34,30 @@ def _text_response(handler: BaseHTTPRequestHandler, message: str, status: int) -
     handler.wfile.write(body)
 
 
-def _create_handler(service: AgentPdfWorkbenchService):
+def _is_within_directory(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _create_handler(
+    service: AgentPdfWorkbenchService,
+    *,
+    allow_remote_pdf: bool = False,
+    pdf_root: Path | None = None,
+):
+    web_root = WEB_DIR.resolve()
+    resolved_pdf_root = pdf_root.resolve() if pdf_root is not None else None
+
     class ViewerRequestHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
@@ -165,14 +188,30 @@ def _create_handler(service: AgentPdfWorkbenchService):
 
         def _serve_pdf(self, uri: str) -> None:
             if uri.startswith("http://") or uri.startswith("https://"):
-                with urlopen(uri) as resp:  # noqa: S310 - intended for configurable viewer source.
+                if not allow_remote_pdf:
+                    _json_response(
+                        self,
+                        {"error": "remote PDF fetch is disabled (set APW_ALLOW_REMOTE_PDF=1 to enable)"},
+                        status=HTTPStatus.FORBIDDEN,
+                    )
+                    return
+                with urlopen(uri, timeout=15) as resp:  # noqa: S310 - intended for configurable viewer source.
                     content = resp.read()
                     content_type = resp.headers.get_content_type() or "application/pdf"
             else:
                 file_path = Path(uri).expanduser()
                 if not file_path.is_absolute():
                     file_path = (Path.cwd() / file_path).resolve()
-                if not file_path.exists():
+                else:
+                    file_path = file_path.resolve()
+                if resolved_pdf_root is not None and not _is_within_directory(file_path, resolved_pdf_root):
+                    _json_response(
+                        self,
+                        {"error": f"PDF path must be inside configured root: {resolved_pdf_root}"},
+                        status=HTTPStatus.FORBIDDEN,
+                    )
+                    return
+                if not file_path.exists() or not file_path.is_file():
                     _text_response(self, f"PDF not found: {file_path}", HTTPStatus.NOT_FOUND)
                     return
                 content = file_path.read_bytes()
@@ -184,8 +223,8 @@ def _create_handler(service: AgentPdfWorkbenchService):
             self.wfile.write(content)
 
         def _serve_static(self, relative_name: str) -> None:
-            target = (WEB_DIR / relative_name).resolve()
-            if not str(target).startswith(str(WEB_DIR.resolve())) or not target.exists() or not target.is_file():
+            target = (web_root / relative_name).resolve()
+            if not _is_within_directory(target, web_root) or not target.exists() or not target.is_file():
                 _text_response(self, "Not Found", HTTPStatus.NOT_FOUND)
                 return
             data = target.read_bytes()
@@ -204,13 +243,28 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default=os.environ.get("APW_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("APW_PORT", "8790")))
     parser.add_argument("--db-path", type=Path, default=Path(os.environ.get("APW_DB_PATH", ".apw/events.db")))
+    parser.add_argument(
+        "--allow-remote-pdf",
+        action="store_true",
+        default=_env_flag("APW_ALLOW_REMOTE_PDF", default=False),
+        help="Allow loading PDFs from http(s) URLs.",
+    )
+    parser.add_argument(
+        "--pdf-root",
+        type=Path,
+        default=Path(os.environ["APW_PDF_ROOT"]).expanduser() if "APW_PDF_ROOT" in os.environ else None,
+        help="Optional root directory for local PDF files. When set, local PDF paths outside this root are blocked.",
+    )
     return parser
 
 
 def main() -> int:
     args = build_parser().parse_args()
     service = AgentPdfWorkbenchService(db_path=args.db_path)
-    server = ThreadingHTTPServer((args.host, args.port), _create_handler(service))
+    server = ThreadingHTTPServer(
+        (args.host, args.port),
+        _create_handler(service, allow_remote_pdf=args.allow_remote_pdf, pdf_root=args.pdf_root),
+    )
     print(f"agent-pdf-workbench viewer server running on http://{args.host}:{args.port}")
     try:
         server.serve_forever()

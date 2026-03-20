@@ -131,8 +131,16 @@ async function refreshEvents() {
     const li = document.createElement("li");
     const line1 = `${event.id} | ${event.event_type} | p.${event.page ?? "-"} | ${event.created_at}`;
     const line2 = event.selection_text ? `text: ${event.selection_text}` : "";
-    const line3 = event.payload && Object.keys(event.payload).length > 0 ? `payload: ${JSON.stringify(event.payload)}` : "";
-    li.innerHTML = `<div>${line1}</div><div>${line2}</div><div>${line3}</div>`;
+    const line3 =
+      event.payload && Object.keys(event.payload).length > 0 ? `payload: ${JSON.stringify(event.payload)}` : "";
+    for (const line of [line1, line2, line3]) {
+      if (!line) {
+        continue;
+      }
+      const div = document.createElement("div");
+      div.textContent = line;
+      li.appendChild(div);
+    }
     els.eventsList.appendChild(li);
   }
 }

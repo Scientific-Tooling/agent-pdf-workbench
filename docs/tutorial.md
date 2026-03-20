@@ -132,11 +132,33 @@ http://127.0.0.1:8790
 ### 4.2 What the UI records
 
 - `page_change`
-- `highlight` (selected text)
-- `copy`
+- `zoom_change`
+- `highlight` (selected text on PDF text layer)
+- `copy` (selected text on PDF text layer)
 - `comment`
+- `annotation_upsert`
+- `annotation_delete`
+- `note_upsert`
+- `note_delete`
 
 These actions appear in the timeline and are persisted to SQLite.
+
+### 4.3 Daily reading workflow in UI
+
+1. Open paper session from left panel (`Paper Ref` + `PDF URI` + `Open Paper`).
+2. Use reading controls: page jump, zoom, fit-width, and outline navigation.
+3. Use search bar for full-text search and jump through hits.
+4. Select text on PDF text layer, then click `Highlight` or `Underline`.
+5. Add annotation comments/tags, and manage annotations from the right panel.
+6. Write Markdown notes and link them to annotation IDs.
+7. Export outputs via `Export JSON` or `Export Markdown`.
+8. Resume quickly from `Recent Papers` (progress is kept locally).
+
+Keyboard shortcuts:
+
+- `j`: next page
+- `k`: previous page
+- `f`: focus search input
 
 ## 5. HTTP API Quick Check
 

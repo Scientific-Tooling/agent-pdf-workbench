@@ -124,9 +124,23 @@ http://127.0.0.1:8790
 Current viewer events:
 
 - `page_change`
-- `highlight` (manual selection from extracted text panel)
-- `copy` (copy action on extracted text panel)
+- `zoom_change`
+- `highlight` (manual selection from PDF text layer)
+- `copy` (copy action on PDF text layer)
 - `comment`
+- `annotation_upsert`
+- `annotation_delete`
+- `note_upsert`
+- `note_delete`
+
+Current viewer workflow features for literature reading:
+
+- zoom, page jump, outline navigation, and keyboard shortcuts (`j/k/f`)
+- full-text search with result list and jump
+- in-PDF text-layer annotations (highlight/underline) with comments and tags
+- markdown notes linked to annotation IDs (back-link to evidence)
+- export reading outputs as JSON and Markdown
+- reading progress + recent papers (local persistence)
 
 ## Project layout
 

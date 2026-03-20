@@ -31,3 +31,62 @@ export interface RecordActionParams {
   selectionText?: string | null;
   payload?: Record<string, unknown> | null;
 }
+
+export type AnnotationType = "highlight" | "underline";
+
+export interface NormalizedRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface Annotation {
+  id: string;
+  page: number;
+  type: AnnotationType;
+  quote: string;
+  comment: string;
+  tags: string[];
+  rects: NormalizedRect[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Note {
+  id: string;
+  title: string;
+  markdown: string;
+  linkedAnnotationIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SearchResult {
+  page: number;
+  snippet: string;
+  matchIndex: number;
+}
+
+export interface OutlineItem {
+  title: string;
+  page: number;
+  level: number;
+}
+
+export interface ReadingProgress {
+  paperRef: string;
+  pdfUri: string;
+  sessionId: string;
+  lastPage: number;
+  zoom: number;
+  updatedAt: string;
+}
+
+export interface RecentPaper {
+  paperRef: string;
+  pdfUri: string;
+  sessionId: string;
+  lastPage: number;
+  updatedAt: string;
+}

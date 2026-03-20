@@ -7,47 +7,142 @@
   </head>
   <body>
     <main class="layout">
-      <section class="panel controls">
+      <aside class="panel controls">
         <h1>Agent PDF Workbench</h1>
-        <label>
-          Paper Ref
-          <input id="paperRef" value="p_demo_001" />
-        </label>
-        <label>
-          PDF URI (local path or URL)
-          <input id="pdfUri" value="/tmp/paper.pdf" />
-        </label>
-        <div class="row">
-          <button id="openPaperBtn">Open Paper</button>
-          <button id="closePaperBtn">Close Session</button>
-        </div>
-        <p id="sessionInfo">Session: -</p>
-        <p id="statusText">Status: idle</p>
-      </section>
+
+        <section class="card">
+          <h2>Session</h2>
+          <label>
+            Paper Ref
+            <input id="paperRef" value="p_demo_001" />
+          </label>
+          <label>
+            PDF URI (local path or URL)
+            <input id="pdfUri" value="/tmp/paper.pdf" />
+          </label>
+          <div class="row">
+            <button id="openPaperBtn">Open Paper</button>
+            <button id="closePaperBtn">Close Session</button>
+          </div>
+          <p id="sessionInfo">Session: -</p>
+          <p id="statusText">Status: idle</p>
+        </section>
+
+        <section class="card">
+          <div class="section-head">
+            <h2>Recent Papers</h2>
+            <button id="refreshRecentBtn">Refresh</button>
+          </div>
+          <ul id="recentList" class="list compact-list"></ul>
+        </section>
+
+        <section class="card">
+          <h2>Outline</h2>
+          <ul id="outlineList" class="list compact-list"></ul>
+        </section>
+      </aside>
 
       <section class="panel reader">
-        <div class="toolbar">
-          <button id="prevBtn">Prev Page</button>
-          <span id="pageInfo">Page - / -</span>
-          <button id="nextBtn">Next Page</button>
+        <div class="toolbar reader-toolbar">
+          <div class="row">
+            <button id="prevBtn">Prev</button>
+            <button id="nextBtn">Next</button>
+          </div>
+          <div class="row">
+            <label class="inline-label">
+              Page
+              <input id="pageJumpInput" type="number" min="1" />
+            </label>
+            <button id="pageJumpBtn">Go</button>
+            <span id="pageInfo">Page - / -</span>
+          </div>
+          <div class="row">
+            <button id="zoomOutBtn">-</button>
+            <span id="zoomInfo">100%</span>
+            <button id="zoomInBtn">+</button>
+            <button id="fitWidthBtn">Fit Width</button>
+          </div>
         </div>
-        <canvas id="pdfCanvas"></canvas>
-        <div class="actions">
-          <button id="highlightBtn">Highlight Selection</button>
-          <input id="commentInput" placeholder="Comment on current page" />
-          <button id="commentBtn">Add Comment</button>
+
+        <div class="toolbar search-toolbar">
+          <input id="searchInput" placeholder="Search in document (press Enter)" />
+          <button id="searchBtn">Search</button>
+          <button id="searchPrevBtn">Prev Hit</button>
+          <button id="searchNextBtn">Next Hit</button>
+          <span id="searchInfo">No search</span>
         </div>
-        <h2>Selectable Text (current page)</h2>
-        <div id="textContent" class="text-content"></div>
+
+        <div id="pdfStage" class="pdf-stage">
+          <canvas id="pdfCanvas"></canvas>
+          <div id="textLayer" class="text-layer"></div>
+          <div id="annotationLayer" class="annotation-layer"></div>
+        </div>
       </section>
 
-      <section class="panel timeline">
-        <div class="timeline-head">
-          <h2>Action Timeline</h2>
-          <button id="refreshBtn">Refresh</button>
-        </div>
-        <ul id="eventsList"></ul>
-      </section>
+      <aside class="panel workspace">
+        <section class="card">
+          <h2>Annotation</h2>
+          <div class="row">
+            <button id="highlightBtn">Highlight</button>
+            <button id="underlineBtn">Underline</button>
+            <button id="deleteAnnotationBtn">Delete Selected</button>
+          </div>
+          <label>
+            Annotation Comment
+            <input id="annotationCommentInput" placeholder="Comment for current selection" />
+          </label>
+          <label>
+            Tags (comma separated)
+            <input id="annotationTagsInput" placeholder="method, result, question" />
+          </label>
+          <p id="selectedAnnotationInfo">Selected annotation: -</p>
+          <ul id="annotationList" class="list"></ul>
+        </section>
+
+        <section class="card">
+          <h2>Notes (Markdown)</h2>
+          <label>
+            Title
+            <input id="noteTitleInput" placeholder="Key idea from this paper" />
+          </label>
+          <label>
+            Linked Annotation IDs (comma separated)
+            <input id="noteLinkedIdsInput" placeholder="ann_abc123, ann_def456" />
+          </label>
+          <label>
+            Content
+            <textarea id="noteMarkdownInput" rows="6" placeholder="Write notes in Markdown"></textarea>
+          </label>
+          <div class="row">
+            <button id="saveNoteBtn">Save Note</button>
+            <button id="newNoteBtn">New Note</button>
+            <button id="deleteNoteBtn">Delete Selected</button>
+          </div>
+          <p id="selectedNoteInfo">Selected note: -</p>
+          <ul id="notesList" class="list"></ul>
+        </section>
+
+        <section class="card">
+          <h2>Search Results</h2>
+          <ul id="searchResultsList" class="list compact-list"></ul>
+        </section>
+
+        <section class="card">
+          <h2>Exports</h2>
+          <div class="row">
+            <button id="exportJsonBtn">Export JSON</button>
+            <button id="exportMarkdownBtn">Export Markdown</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="section-head">
+            <h2>Action Timeline</h2>
+            <button id="refreshBtn">Refresh</button>
+          </div>
+          <ul id="eventsList" class="list compact-list"></ul>
+        </section>
+      </aside>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

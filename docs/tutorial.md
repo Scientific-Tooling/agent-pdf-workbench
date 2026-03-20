@@ -21,6 +21,29 @@ PYTHONPATH=src python3 -m unittest discover -s tests -p "test_*.py"
 
 Expected result: all tests pass.
 
+## 2.1 Frontend Tooling (for contributors)
+
+The frontend source is in `frontend/` and is built into `src/agent_pdf_workbench/web/`.
+
+```bash
+npm install
+npm run format:check
+npm run lint
+npm run test
+npm run typecheck
+npm run build
+npm run check
+```
+
+For hot-reload development:
+
+1. Start backend API:
+`PYTHONPATH=src python3 -m agent_pdf_workbench.viewer_server --db-path /tmp/apw/events.db --port 8790`
+2. Start Vite:
+`npm run dev`
+3. Open:
+`http://127.0.0.1:5173`
+
 ## 3. CLI Walkthrough
 
 This section uses a temporary database at `/tmp/apw/events.db`.

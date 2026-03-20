@@ -39,6 +39,42 @@ Full walkthrough:
 
 - [docs/tutorial.md](docs/tutorial.md)
 
+## Frontend development
+
+The viewer frontend is now engineered with `Vite + TypeScript`.
+
+Source of truth:
+
+- `frontend/index.html`
+- `frontend/src/*.ts`
+- `frontend/src/styles.css`
+
+Build output served by Python:
+
+- `src/agent_pdf_workbench/web/index.html`
+- `src/agent_pdf_workbench/web/app.js`
+- `src/agent_pdf_workbench/web/styles.css`
+
+Commands:
+
+```bash
+npm install
+npm run format:check
+npm run lint
+npm run test
+npm run typecheck
+npm run build
+npm run check
+```
+
+For local frontend dev with hot reload:
+
+1. Run backend viewer API on `127.0.0.1:8790`:
+`PYTHONPATH=src python3 -m agent_pdf_workbench.viewer_server --db-path /tmp/apw/events.db --port 8790`
+2. Run Vite dev server:
+`npm run dev`
+3. Open `http://127.0.0.1:5173`
+
 ## Agent skill
 
 This repo now includes a reusable skill for agents that need to open a PDF in this app:
@@ -101,7 +137,10 @@ src/agent_pdf_workbench/
   dev_cli.py      # local smoke-test CLI
   mcp_server.py   # MCP server entrypoint
   viewer_server.py # local web UI/API server
-  web/            # viewer frontend files
+  web/            # built frontend assets served by viewer_server.py
+frontend/
+  index.html      # Vite entry HTML
+  src/            # TypeScript frontend source
 tests/
   test_store.py
 ```

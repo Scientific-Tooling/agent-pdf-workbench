@@ -9,6 +9,9 @@
   --accent-hover: #1e40af;
   --highlight: rgba(250, 204, 21, 0.35);
   --underline: #ef4444;
+  --ok: #16a34a;
+  --warn: #f59e0b;
+  --error: #dc2626;
 }
 
 * {
@@ -21,8 +24,7 @@ body {
   color: var(--text);
   background:
     radial-gradient(circle at 0 0, #e2ebff 0, transparent 45%),
-    radial-gradient(circle at 100% 100%, #fce7f3 0, transparent 40%),
-    var(--bg);
+    radial-gradient(circle at 100% 100%, #fce7f3 0, transparent 40%), var(--bg);
 }
 
 h1,
@@ -70,6 +72,7 @@ button {
   color: #fff;
   cursor: pointer;
   font: inherit;
+  transition: background-color 0.15s ease;
 }
 
 button:hover {
@@ -78,7 +81,7 @@ button:hover {
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(290px, 22vw) minmax(440px, 1fr) minmax(320px, 27vw);
+  grid-template-columns: minmax(260px, 19vw) minmax(640px, 1fr) minmax(320px, 24vw);
   gap: 12px;
   padding: 12px;
   min-height: 100vh;
@@ -108,6 +111,51 @@ button:hover {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.collapsible > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.collapsible > summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapsible > summary::before {
+  content: "▾";
+  margin-right: 6px;
+  color: var(--muted);
+}
+
+.collapsible:not([open]) > summary::before {
+  content: "▸";
+}
+
+.collapsible:not([open]) .card-body {
+  display: none;
+}
+
+.ghost-btn {
+  background: #e5ecf9;
+  color: #1d4ed8;
+}
+
+.ghost-btn:hover {
+  background: #d8e4fb;
 }
 
 .section-head {
@@ -167,7 +215,7 @@ button:hover {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #edf2f9;
-  min-height: 540px;
+  min-height: 620px;
 }
 
 #pdfCanvas {
@@ -201,6 +249,11 @@ button:hover {
   background: rgba(251, 191, 36, 0.25);
 }
 
+.text-layer span.search-hit.current-hit {
+  background: rgba(245, 158, 11, 0.6);
+  box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.85);
+}
+
 .annotation-layer {
   pointer-events: none;
 }
@@ -222,6 +275,41 @@ button:hover {
 .annotation-mark.selected {
   outline: 2px solid #0ea5e9;
   outline-offset: 1px;
+}
+
+.stage-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(248, 250, 252, 0.72);
+  backdrop-filter: blur(1px);
+  z-index: 40;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.quick-annotator {
+  position: absolute;
+  z-index: 45;
+  min-width: 280px;
+  max-width: 340px;
+  background: #ffffff;
+  border: 1px solid #c8d2e2;
+  border-radius: 10px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.16);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quick-annotator input {
+  margin-top: 0;
+}
+
+.hidden {
+  display: none !important;
 }
 
 .list {
@@ -268,12 +356,57 @@ button:hover {
   color: var(--muted);
 }
 
+.toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 110;
+}
+
+.toast {
+  min-width: 220px;
+  max-width: 360px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: #fff;
+  background: #1f2937;
+  font-size: 0.86rem;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.23);
+  animation: toast-in 0.16s ease;
+}
+
+.toast.success {
+  background: var(--ok);
+}
+
+.toast.warning {
+  background: var(--warn);
+}
+
+.toast.error {
+  background: var(--error);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (max-width: 1350px) {
   .layout {
     grid-template-columns: 1fr;
   }
 
   .pdf-stage {
-    min-height: 420px;
+    min-height: 460px;
   }
 }

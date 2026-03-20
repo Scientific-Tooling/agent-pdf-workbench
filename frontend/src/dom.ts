@@ -38,6 +38,12 @@ export interface UiElements {
   pdfCanvas: HTMLCanvasElement;
   textLayer: HTMLDivElement;
   annotationLayer: HTMLDivElement;
+  stageLoading: HTMLDivElement;
+  quickAnnotator: HTMLDivElement;
+  quickCommentInput: HTMLInputElement;
+  quickHighlightBtn: HTMLButtonElement;
+  quickUnderlineBtn: HTMLButtonElement;
+  quickDismissBtn: HTMLButtonElement;
 
   highlightBtn: HTMLButtonElement;
   underlineBtn: HTMLButtonElement;
@@ -61,6 +67,7 @@ export interface UiElements {
 
   refreshBtn: HTMLButtonElement;
   eventsList: HTMLUListElement;
+  toastStack: HTMLDivElement;
 }
 
 export function getUiElements(): UiElements {
@@ -96,6 +103,12 @@ export function getUiElements(): UiElements {
     pdfCanvas: mustElement<HTMLCanvasElement>("pdfCanvas"),
     textLayer: mustElement<HTMLDivElement>("textLayer"),
     annotationLayer: mustElement<HTMLDivElement>("annotationLayer"),
+    stageLoading: mustElement<HTMLDivElement>("stageLoading"),
+    quickAnnotator: mustElement<HTMLDivElement>("quickAnnotator"),
+    quickCommentInput: mustElement<HTMLInputElement>("quickCommentInput"),
+    quickHighlightBtn: mustElement<HTMLButtonElement>("quickHighlightBtn"),
+    quickUnderlineBtn: mustElement<HTMLButtonElement>("quickUnderlineBtn"),
+    quickDismissBtn: mustElement<HTMLButtonElement>("quickDismissBtn"),
 
     highlightBtn: mustElement<HTMLButtonElement>("highlightBtn"),
     underlineBtn: mustElement<HTMLButtonElement>("underlineBtn"),
@@ -119,5 +132,6 @@ export function getUiElements(): UiElements {
 
     refreshBtn: mustElement<HTMLButtonElement>("refreshBtn"),
     eventsList: mustElement<HTMLUListElement>("eventsList"),
+    toastStack: mustElement<HTMLDivElement>("toastStack"),
   };
 }

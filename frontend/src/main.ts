@@ -47,6 +47,15 @@ interface PdfDocumentLike {
   getPageIndex(ref: unknown): Promise<number>;
 }
 
+interface PendingSelection {
+  rects: NormalizedRect[];
+  quote: string;
+  anchorX: number;
+  anchorY: number;
+}
+
+type ToastType = "success" | "warning" | "error" | "info";
+
 interface AppState {
   session: PaperSession | null;
   pdfDoc: PdfDocumentLike | null;
@@ -63,6 +72,8 @@ interface AppState {
   searchCursor: number;
   pageTextCache: Map<number, string>;
   outline: OutlineItem[];
+  loadingCount: number;
+  pendingSelection: PendingSelection | null;
 }
 
 const DEFAULT_AGENT_ID = "agent:browser-ui";
@@ -87,6 +98,8 @@ const state: AppState = {
   searchCursor: 0,
   pageTextCache: new Map(),
   outline: [],
+  loadingCount: 0,
+  pendingSelection: null,
 };
 
 const els = getUiElements();
@@ -112,6 +125,47 @@ function setStatus(text: string): void {
   els.statusText.textContent = `Status: ${text}`;
 }
 
+function reportError(error: unknown, fallback = "Operation failed"): void {
+  const message = errorMessage(error) || fallback;
+  setStatus(message);
+  showToast(message, "error", 3200);
+}
+
+function showToast(message: string, type: ToastType = "info", timeoutMs = 2200): void {
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  if (type !== "info") {
+    toast.classList.add(type);
+  }
+  toast.textContent = message;
+  els.toastStack.appendChild(toast);
+  window.setTimeout(() => {
+    toast.remove();
+  }, timeoutMs);
+}
+
+function setLoading(loading: boolean, label = "Loading PDF..."): void {
+  if (loading) {
+    state.loadingCount += 1;
+    els.stageLoading.textContent = label;
+    els.stageLoading.classList.remove("hidden");
+    return;
+  }
+  state.loadingCount = Math.max(0, state.loadingCount - 1);
+  if (state.loadingCount === 0) {
+    els.stageLoading.classList.add("hidden");
+  }
+}
+
+async function withStageLoading<T>(label: string, task: () => Promise<T>): Promise<T> {
+  setLoading(true, label);
+  try {
+    return await task();
+  } finally {
+    setLoading(false);
+  }
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -134,11 +188,30 @@ function updateZoomInfo(): void {
   els.zoomInfo.textContent = `${Math.round(state.zoom * 100)}%`;
 }
 
+function hideQuickAnnotator(clearPending = true): void {
+  els.quickAnnotator.classList.add("hidden");
+  if (clearPending) {
+    state.pendingSelection = null;
+  }
+}
+
+function showQuickAnnotator(selection: PendingSelection): void {
+  state.pendingSelection = selection;
+  const left = clamp(selection.anchorX + 8, 8, Math.max(8, els.pdfStage.clientWidth - 320));
+  const top = clamp(selection.anchorY - 56, 8, Math.max(8, els.pdfStage.clientHeight - 120));
+  els.quickAnnotator.style.left = `${left}px`;
+  els.quickAnnotator.style.top = `${top}px`;
+  els.quickCommentInput.value = "";
+  els.quickAnnotator.classList.remove("hidden");
+}
+
 function selectedAnnotation(): Annotation | null {
   if (!state.selectedAnnotationId) {
     return null;
   }
-  return state.annotations.find((annotation) => annotation.id === state.selectedAnnotationId) ?? null;
+  return (
+    state.annotations.find((annotation) => annotation.id === state.selectedAnnotationId) ?? null
+  );
 }
 
 function selectedNote(): Note | null {
@@ -332,7 +405,8 @@ function renderNotesList(): void {
     li.appendChild(title);
 
     const content = document.createElement("div");
-    content.textContent = note.markdown.length > 160 ? `${note.markdown.slice(0, 160)}...` : note.markdown;
+    content.textContent =
+      note.markdown.length > 160 ? `${note.markdown.slice(0, 160)}...` : note.markdown;
     li.appendChild(content);
 
     if (note.linkedAnnotationIds.length > 0) {
@@ -399,11 +473,34 @@ function renderSearchResults(): void {
 function applySearchHighlightsToCurrentPage(): void {
   const query = state.searchQuery.trim().toLowerCase();
   const spans = Array.from(els.textLayer.querySelectorAll("span"));
+  const activeResult = state.searchResults[state.searchCursor] ?? null;
+  let markedCurrent = false;
   for (const span of spans) {
     span.classList.remove("search-hit");
+    span.classList.remove("current-hit");
     const text = (span as HTMLElement).dataset.content ?? "";
     if (query && text.toLowerCase().includes(query)) {
       span.classList.add("search-hit");
+      if (activeResult && activeResult.page === state.page) {
+        const start = Number((span as HTMLElement).dataset.start ?? "-1");
+        const end = Number((span as HTMLElement).dataset.end ?? "-1");
+        if (
+          !markedCurrent &&
+          Number.isFinite(start) &&
+          Number.isFinite(end) &&
+          activeResult.matchIndex >= start &&
+          activeResult.matchIndex <= end
+        ) {
+          span.classList.add("current-hit");
+          markedCurrent = true;
+        }
+      }
+    }
+  }
+  if (!markedCurrent && activeResult && activeResult.page === state.page) {
+    const firstHit = els.textLayer.querySelector("span.search-hit");
+    if (firstHit) {
+      firstHit.classList.add("current-hit");
     }
   }
 }
@@ -482,6 +579,7 @@ function renderTextLayer(viewport: PdfViewportLike, items: Array<Record<string, 
   els.textLayer.innerHTML = "";
   els.textLayer.style.width = `${viewport.width}px`;
   els.textLayer.style.height = `${viewport.height}px`;
+  let textCursor = 0;
 
   for (const item of items) {
     if (typeof item.str !== "string" || !Array.isArray(item.transform)) {
@@ -495,11 +593,14 @@ function renderTextLayer(viewport: PdfViewportLike, items: Array<Record<string, 
 
     span.textContent = item.str;
     span.dataset.content = item.str;
+    span.dataset.start = String(textCursor);
+    span.dataset.end = String(textCursor + item.str.length);
     span.style.left = `${x}px`;
     span.style.top = `${y - fontSize}px`;
     span.style.fontSize = `${fontSize}px`;
     span.style.fontFamily = "sans-serif";
     els.textLayer.appendChild(span);
+    textCursor += item.str.length + 1;
   }
 }
 
@@ -542,33 +643,34 @@ async function renderPage(pageNumber: number, emitPageChange: boolean): Promise<
   if (!state.pdfDoc) {
     return;
   }
+  await withStageLoading("Rendering page...", async () => {
+    const page = await state.pdfDoc!.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: state.zoom });
+    updateCanvasAndLayersSize(viewport);
 
-  const page = await state.pdfDoc.getPage(pageNumber);
-  const viewport = page.getViewport({ scale: state.zoom });
-  updateCanvasAndLayersSize(viewport);
+    const context = els.pdfCanvas.getContext("2d");
+    if (!context) {
+      throw new Error("Cannot initialize 2d canvas context");
+    }
+    await page.render({ canvasContext: context, viewport }).promise;
 
-  const context = els.pdfCanvas.getContext("2d");
-  if (!context) {
-    throw new Error("Cannot initialize 2d canvas context");
-  }
-  await page.render({ canvasContext: context, viewport }).promise;
+    const textContent = await page.getTextContent();
+    renderTextLayer(viewport, textContent.items);
+    applySearchHighlightsToCurrentPage();
+    renderAnnotationLayer();
 
-  const textContent = await page.getTextContent();
-  renderTextLayer(viewport, textContent.items);
-  applySearchHighlightsToCurrentPage();
-  renderAnnotationLayer();
+    const pageText = readTextFromPdfItems(textContent.items);
+    state.pageTextCache.set(pageNumber, pageText);
 
-  const pageText = readTextFromPdfItems(textContent.items);
-  state.pageTextCache.set(pageNumber, pageText);
+    state.page = pageNumber;
+    els.pageInfo.textContent = `Page ${state.page} / ${state.pdfDoc!.numPages}`;
+    els.pageJumpInput.value = String(state.page);
+    persistReadingProgress();
 
-  state.page = pageNumber;
-  els.pageInfo.textContent = `Page ${state.page} / ${state.pdfDoc.numPages}`;
-  els.pageJumpInput.value = String(state.page);
-  persistReadingProgress();
-
-  if (emitPageChange) {
-    await recordAction("page_change", { total_pages: state.pdfDoc.numPages }, pageNumber);
-  }
+    if (emitPageChange) {
+      await recordAction("page_change", { total_pages: state.pdfDoc!.numPages }, pageNumber);
+    }
+  });
 }
 
 function upsertAnnotation(annotation: Annotation): void {
@@ -621,7 +723,9 @@ function asAnnotation(value: unknown): Annotation | null {
     type: candidate.type,
     quote: typeof candidate.quote === "string" ? candidate.quote : "",
     comment: typeof candidate.comment === "string" ? candidate.comment : "",
-    tags: Array.isArray(candidate.tags) ? candidate.tags.filter((tag): tag is string => typeof tag === "string") : [],
+    tags: Array.isArray(candidate.tags)
+      ? candidate.tags.filter((tag): tag is string => typeof tag === "string")
+      : [],
     rects: candidate.rects.filter((rect): rect is NormalizedRect => {
       if (typeof rect !== "object" || rect === null) {
         return false;
@@ -742,38 +846,42 @@ async function runSearch(queryRaw: string): Promise<void> {
   }
 
   const query = state.searchQuery.toLowerCase();
-  for (let page = 1; page <= state.pdfDoc.numPages; page += 1) {
-    const text = await ensurePageText(page);
-    const lower = text.toLowerCase();
-    let startIndex = 0;
-    while (true) {
-      const hit = lower.indexOf(query, startIndex);
-      if (hit === -1) {
-        break;
+  await withStageLoading("Searching document...", async () => {
+    for (let page = 1; page <= state.pdfDoc!.numPages; page += 1) {
+      const text = await ensurePageText(page);
+      const lower = text.toLowerCase();
+      let startIndex = 0;
+      while (true) {
+        const hit = lower.indexOf(query, startIndex);
+        if (hit === -1) {
+          break;
+        }
+        const snippetStart = Math.max(0, hit - 40);
+        const snippetEnd = Math.min(text.length, hit + state.searchQuery.length + 40);
+        state.searchResults.push({
+          page,
+          snippet: text.slice(snippetStart, snippetEnd).replace(/\s+/g, " "),
+          matchIndex: hit,
+        });
+        startIndex = hit + state.searchQuery.length;
+        if (state.searchResults.length >= 300) {
+          break;
+        }
       }
-      const snippetStart = Math.max(0, hit - 40);
-      const snippetEnd = Math.min(text.length, hit + state.searchQuery.length + 40);
-      state.searchResults.push({
-        page,
-        snippet: text.slice(snippetStart, snippetEnd).replace(/\s+/g, " "),
-        matchIndex: hit,
-      });
-      startIndex = hit + state.searchQuery.length;
       if (state.searchResults.length >= 300) {
         break;
       }
     }
-    if (state.searchResults.length >= 300) {
-      break;
-    }
-  }
+  });
 
   if (state.searchResults.length > 0) {
     await jumpToSearchResult(0);
+    showToast(`${state.searchResults.length} matches found`, "success", 1600);
   } else {
     renderSearchResults();
     updateSearchInfo();
     applySearchHighlightsToCurrentPage();
+    showToast("No matches found", "warning", 1600);
   }
 }
 
@@ -781,7 +889,9 @@ async function jumpToSearchResult(index: number): Promise<void> {
   if (state.searchResults.length === 0) {
     return;
   }
-  const normalized = ((index % state.searchResults.length) + state.searchResults.length) % state.searchResults.length;
+  const normalized =
+    ((index % state.searchResults.length) + state.searchResults.length) %
+    state.searchResults.length;
   state.searchCursor = normalized;
   const target = state.searchResults[normalized];
 
@@ -794,7 +904,7 @@ async function jumpToSearchResult(index: number): Promise<void> {
   updateSearchInfo();
 }
 
-function getSelectionRectsAndQuote(): { rects: NormalizedRect[]; quote: string } | null {
+function getSelectionRectsAndQuote(clearSelection = true): PendingSelection | null {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) {
     return null;
@@ -810,6 +920,7 @@ function getSelectionRectsAndQuote(): { rects: NormalizedRect[]; quote: string }
   }
 
   const layerRect = els.textLayer.getBoundingClientRect();
+  const rangeRect = range.getBoundingClientRect();
   const rects = Array.from(range.getClientRects())
     .filter((rect) => rect.width > 0 && rect.height > 0)
     .map((rect) => ({
@@ -819,31 +930,42 @@ function getSelectionRectsAndQuote(): { rects: NormalizedRect[]; quote: string }
       height: rect.height / layerRect.height,
     }));
 
-  selection.removeAllRanges();
+  if (clearSelection) {
+    selection.removeAllRanges();
+  }
   if (rects.length === 0) {
     return null;
   }
-  return { rects, quote };
+  return {
+    rects,
+    quote,
+    anchorX: rangeRect.left - layerRect.left + els.pdfStage.scrollLeft,
+    anchorY: rangeRect.top - layerRect.top + els.pdfStage.scrollTop,
+  };
 }
 
-async function createAnnotation(type: AnnotationType): Promise<void> {
-  const selected = getSelectionRectsAndQuote();
+async function createAnnotation(
+  type: AnnotationType,
+  selectedInput?: PendingSelection,
+  commentOverride?: string,
+): Promise<void> {
+  const selected = selectedInput ?? getSelectionRectsAndQuote();
   if (!selected) {
     setStatus("Select text directly on the PDF text layer first.");
+    showToast("Select text on PDF before annotating.", "warning");
     return;
   }
-  const existing = selectedAnnotation();
-  const annotationId = existing?.id ?? uid("ann");
+  const annotationId = uid("ann");
   const now = nowIso();
   const annotation: Annotation = {
     id: annotationId,
     page: state.page,
     type,
     quote: selected.quote,
-    comment: els.annotationCommentInput.value.trim(),
+    comment: commentOverride ?? els.annotationCommentInput.value.trim(),
     tags: parseTags(els.annotationTagsInput.value),
     rects: selected.rects,
-    createdAt: existing?.createdAt ?? now,
+    createdAt: now,
     updatedAt: now,
   };
 
@@ -860,7 +982,10 @@ async function createAnnotation(type: AnnotationType): Promise<void> {
     );
   }
   await refreshEvents();
+  hideQuickAnnotator();
+  window.getSelection()?.removeAllRanges();
   setStatus(`Annotation ${type} saved.`);
+  showToast(`${type === "highlight" ? "Highlight" : "Underline"} saved`, "success");
 }
 
 async function updateSelectedAnnotationMeta(): Promise<void> {
@@ -887,6 +1012,7 @@ async function updateSelectedAnnotationMeta(): Promise<void> {
     );
   }
   await refreshEvents();
+  showToast("Annotation metadata updated", "success", 1400);
 }
 
 async function jumpToAnnotation(annotationId: string): Promise<void> {
@@ -906,9 +1032,15 @@ async function deleteSelectedAnnotation(): Promise<void> {
     return;
   }
   deleteAnnotation(annotation.id);
-  await recordAction("annotation_delete", { annotation_id: annotation.id }, annotation.page, annotation.quote);
+  await recordAction(
+    "annotation_delete",
+    { annotation_id: annotation.id },
+    annotation.page,
+    annotation.quote,
+  );
   await refreshEvents();
   setStatus("Annotation deleted.");
+  showToast("Annotation deleted", "success");
 }
 
 async function saveNote(): Promise<void> {
@@ -927,6 +1059,7 @@ async function saveNote(): Promise<void> {
   await recordAction("note_upsert", { note }, state.page);
   await refreshEvents();
   setStatus("Note saved.");
+  showToast("Note saved", "success");
 }
 
 async function deleteSelectedNote(): Promise<void> {
@@ -938,6 +1071,7 @@ async function deleteSelectedNote(): Promise<void> {
   await recordAction("note_delete", { note_id: note.id }, state.page);
   await refreshEvents();
   setStatus("Note deleted.");
+  showToast("Note deleted", "success");
 }
 
 function newNoteDraft(): void {
@@ -955,7 +1089,12 @@ function exportJson(): void {
     search_query: state.searchQuery,
     progress: getProgress(state.paperRef),
   };
-  downloadFile(`${state.paperRef || "paper"}-reading-data.json`, JSON.stringify(payload, null, 2), "application/json");
+  downloadFile(
+    `${state.paperRef || "paper"}-reading-data.json`,
+    JSON.stringify(payload, null, 2),
+    "application/json",
+  );
+  showToast("JSON export ready", "success");
 }
 
 function exportMarkdown(): void {
@@ -1001,6 +1140,7 @@ function exportMarkdown(): void {
   }
 
   downloadFile(`${state.paperRef || "paper"}-reading-notes.md`, lines.join("\n"), "text/markdown");
+  showToast("Markdown export ready", "success");
 }
 
 async function resolveOutlinePage(dest: unknown): Promise<number | null> {
@@ -1080,14 +1220,16 @@ function renderOutline(): void {
 
 async function loadPdf(pdfUri: string, preferredPage: number): Promise<void> {
   const source = `/api/pdf?uri=${encodeURIComponent(pdfUri)}`;
-  const loadingTask = pdfjsLib.getDocument(source);
-  state.pdfDoc = (await loadingTask.promise) as unknown as PdfDocumentLike;
-  state.pageTextCache.clear();
-  await buildOutline();
+  await withStageLoading("Loading PDF...", async () => {
+    const loadingTask = pdfjsLib.getDocument(source);
+    state.pdfDoc = (await loadingTask.promise) as unknown as PdfDocumentLike;
+    state.pageTextCache.clear();
+    await buildOutline();
 
-  const normalizedPage = clamp(preferredPage, 1, state.pdfDoc.numPages);
-  await renderPage(normalizedPage, true);
-  updateZoomInfo();
+    const normalizedPage = clamp(preferredPage, 1, state.pdfDoc!.numPages);
+    await renderPage(normalizedPage, true);
+    updateZoomInfo();
+  });
 }
 
 async function openPaper(): Promise<void> {
@@ -1130,6 +1272,7 @@ async function openPaper(): Promise<void> {
   renderSearchResults();
   updateSearchInfo();
   setStatus("session ready");
+  showToast("Session opened", "success");
 }
 
 async function closeSession(): Promise<void> {
@@ -1138,6 +1281,7 @@ async function closeSession(): Promise<void> {
   }
   await apiPost("/api/close-paper", { session_id: state.session.id });
   setStatus("session closed");
+  showToast("Session closed", "success");
 }
 
 async function goPrevPage(): Promise<void> {
@@ -1194,7 +1338,7 @@ function bindUiEvents(): void {
     try {
       await openPaper();
     } catch (error) {
-      setStatus(errorMessage(error));
+      reportError(error, "Failed to open paper");
     }
   });
 
@@ -1203,15 +1347,18 @@ function bindUiEvents(): void {
       await closeSession();
       await refreshEvents();
     } catch (error) {
-      setStatus(errorMessage(error));
+      reportError(error, "Failed to close session");
     }
   });
 
-  els.refreshBtn.addEventListener("click", async () => {
+  els.refreshBtn.addEventListener("click", async (event) => {
+    // Keep refresh action from toggling the parent <details> summary.
+    event.preventDefault();
+    event.stopPropagation();
     try {
       await refreshEvents();
     } catch (error) {
-      setStatus(errorMessage(error));
+      reportError(error, "Failed to refresh timeline");
     }
   });
 
@@ -1223,7 +1370,7 @@ function bindUiEvents(): void {
     try {
       await goPrevPage();
     } catch (error) {
-      setStatus(errorMessage(error));
+      reportError(error, "Failed to go to previous page");
     }
   });
 
@@ -1231,7 +1378,7 @@ function bindUiEvents(): void {
     try {
       await goNextPage();
     } catch (error) {
-      setStatus(errorMessage(error));
+      reportError(error, "Failed to go to next page");
     }
   });
 
@@ -1239,7 +1386,7 @@ function bindUiEvents(): void {
     try {
       await jumpToPageInput();
     } catch (error) {
-      setStatus(errorMessage(error));
+      reportError(error, "Failed to jump page");
     }
   });
 
@@ -1255,7 +1402,7 @@ function bindUiEvents(): void {
     try {
       await fitWidth();
     } catch (error) {
-      setStatus(errorMessage(error));
+      reportError(error, "Failed to fit width");
     }
   });
 
@@ -1266,7 +1413,20 @@ function bindUiEvents(): void {
   els.searchInput.addEventListener("keydown", async (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      await runSearch(els.searchInput.value);
+      const query = els.searchInput.value.trim();
+      if (!query) {
+        await runSearch("");
+        return;
+      }
+      if (state.searchQuery === query && state.searchResults.length > 0) {
+        if (event.shiftKey) {
+          await jumpToSearchResult(state.searchCursor - 1);
+        } else {
+          await jumpToSearchResult(state.searchCursor + 1);
+        }
+        return;
+      }
+      await runSearch(query);
     }
   });
 
@@ -1282,7 +1442,7 @@ function bindUiEvents(): void {
     try {
       await createAnnotation("highlight");
     } catch (error) {
-      setStatus(errorMessage(error));
+      reportError(error, "Failed to create highlight");
     }
   });
 
@@ -1290,7 +1450,7 @@ function bindUiEvents(): void {
     try {
       await createAnnotation("underline");
     } catch (error) {
-      setStatus(errorMessage(error));
+      reportError(error, "Failed to create underline");
     }
   });
 
@@ -1306,7 +1466,7 @@ function bindUiEvents(): void {
     try {
       await deleteSelectedAnnotation();
     } catch (error) {
-      setStatus(errorMessage(error));
+      reportError(error, "Failed to delete annotation");
     }
   });
 
@@ -1314,7 +1474,7 @@ function bindUiEvents(): void {
     try {
       await saveNote();
     } catch (error) {
-      setStatus(errorMessage(error));
+      reportError(error, "Failed to save note");
     }
   });
 
@@ -1326,7 +1486,7 @@ function bindUiEvents(): void {
     try {
       await deleteSelectedNote();
     } catch (error) {
-      setStatus(errorMessage(error));
+      reportError(error, "Failed to delete note");
     }
   });
 
@@ -1347,9 +1507,65 @@ function bindUiEvents(): void {
     await refreshEvents();
   });
 
+  els.textLayer.addEventListener("mouseup", () => {
+    const selected = getSelectionRectsAndQuote(false);
+    if (!selected) {
+      hideQuickAnnotator();
+      return;
+    }
+    showQuickAnnotator(selected);
+  });
+
+  els.quickHighlightBtn.addEventListener("click", async () => {
+    if (!state.pendingSelection) {
+      return;
+    }
+    try {
+      await createAnnotation(
+        "highlight",
+        state.pendingSelection,
+        els.quickCommentInput.value.trim(),
+      );
+    } catch (error) {
+      reportError(error, "Failed to create quick highlight");
+    }
+  });
+
+  els.quickUnderlineBtn.addEventListener("click", async () => {
+    if (!state.pendingSelection) {
+      return;
+    }
+    try {
+      await createAnnotation(
+        "underline",
+        state.pendingSelection,
+        els.quickCommentInput.value.trim(),
+      );
+    } catch (error) {
+      reportError(error, "Failed to create quick underline");
+    }
+  });
+
+  els.quickDismissBtn.addEventListener("click", () => {
+    hideQuickAnnotator();
+  });
+
+  document.addEventListener("mousedown", (event) => {
+    const target = event.target as Node | null;
+    if (!target) {
+      return;
+    }
+    if (els.quickAnnotator.contains(target) || els.textLayer.contains(target)) {
+      return;
+    }
+    hideQuickAnnotator();
+  });
+
   document.addEventListener("keydown", async (event) => {
     const target = event.target as HTMLElement | null;
-    const editable = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+    const editable =
+      target &&
+      (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
     if (editable) {
       return;
     }
@@ -1367,6 +1583,10 @@ function bindUiEvents(): void {
       event.preventDefault();
       els.searchInput.focus();
       els.searchInput.select();
+      return;
+    }
+    if (event.key === "Escape") {
+      hideQuickAnnotator();
     }
   });
 }

@@ -4,7 +4,7 @@ from dataclasses import asdict
 from pathlib import Path
 from uuid import uuid4
 
-from .store import EventStore
+from .store import EventStore, MAX_LIST_LIMIT
 
 
 class AgentPdfWorkbenchService:
@@ -93,3 +93,38 @@ class AgentPdfWorkbenchService:
     def delete_note(self, *, session_id: str, note_id: str) -> dict:
         deleted = self._store.delete_note(session_id=session_id, note_id=note_id)
         return {"session_id": session_id, "note_id": note_id, "deleted": deleted}
+
+    def backup(self, *, target_path: Path) -> dict:
+        """Create an online SQLite backup at *target_path*.
+
+        Returns a summary dict with the resolved target path.
+        """
+        self._store.backup_to(target_path)
+        return {"backed_up_to": str(target_path.resolve())}
+
+    def checkpoint(self) -> dict:
+        """Force a WAL checkpoint and return result counters."""
+        return self._store.checkpoint()
+
+    def export_workspace(self) -> dict:
+        """Export all sessions with their events, annotations, and notes as a dict.
+
+        Intended for human-readable JSON backup and offline analysis.
+        The structure is:
+        ``{"sessions": [{"session": {...}, "events": [...], "annotations": [...], "notes": [...]}]}``
+        """
+        sessions = self._store.list_all_sessions()
+        result = []
+        for session in sessions:
+            events = self._store.list_events(session_id=session.id, limit=MAX_LIST_LIMIT)
+            annotations = self._store.list_annotations(session_id=session.id, limit=MAX_LIST_LIMIT)
+            notes = self._store.list_notes(session_id=session.id, limit=MAX_LIST_LIMIT)
+            result.append(
+                {
+                    "session": asdict(session),
+                    "events": [asdict(e) for e in events],
+                    "annotations": [asdict(a) for a in annotations],
+                    "notes": [asdict(n) for n in notes],
+                }
+            )
+        return {"sessions": result, "session_count": len(result)}

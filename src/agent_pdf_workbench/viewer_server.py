@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import mimetypes
 import os
+import signal
 import socket
+import sys
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -14,9 +18,59 @@ from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
 
 from .service import AgentPdfWorkbenchService
+from .store import SCHEMA_VERSION
+
+try:
+    from importlib.metadata import version as _pkg_version
+    _APP_VERSION: str = _pkg_version("agent-pdf-workbench")
+except Exception:
+    _APP_VERSION = "0.1.0-dev"
 
 
 WEB_DIR = Path(__file__).with_name("web")
+
+# Maximum POST body size (1 MiB). Protects against runaway payloads.
+_MAX_REQUEST_BODY = 1 * 1024 * 1024
+
+# Security headers added to every response for safer local browser behaviour.
+_SECURITY_HEADERS = [
+    ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "SAMEORIGIN"),
+    ("Cache-Control", "no-store"),
+]
+
+# Known-safe local bind addresses.
+_LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+# Structured audit logger.  Emits INFO-level JSON lines when logging is configured.
+_audit_logger = logging.getLogger("apw.audit")
+
+# Maximum length of potentially sensitive text fields logged in audit events.
+_AUDIT_TEXT_MAX = 0  # 0 = never log text content (redact fully)
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _audit(event: str, **kwargs: object) -> None:
+    """Emit a structured audit log line with consistent timestamp/level/event fields.
+
+    Text content (selection_text, quotes) is never included to avoid leaking
+    document content into logs.  Only IDs, types, and counts are logged.
+    """
+    record = {
+        "timestamp": _utc_now_iso(),
+        "level": "AUDIT",
+        "event": event,
+        **kwargs,
+    }
+    _audit_logger.info(json.dumps(record, ensure_ascii=True))
+
+
+def _add_security_headers(handler: BaseHTTPRequestHandler) -> None:
+    for name, value in _SECURITY_HEADERS:
+        handler.send_header(name, value)
 
 
 def _json_response(handler: BaseHTTPRequestHandler, payload: dict, status: int = 200) -> None:
@@ -24,8 +78,24 @@ def _json_response(handler: BaseHTTPRequestHandler, payload: dict, status: int =
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json; charset=utf-8")
     handler.send_header("Content-Length", str(len(body)))
+    _add_security_headers(handler)
     handler.end_headers()
     handler.wfile.write(body)
+
+
+def _error_response(
+    handler: BaseHTTPRequestHandler,
+    message: str,
+    *,
+    code: str,
+    status: int,
+    details: dict | None = None,
+) -> None:
+    """Emit a standardised error envelope: {error, code, details?}."""
+    payload: dict = {"error": message, "code": code}
+    if details:
+        payload["details"] = details
+    _json_response(handler, payload, status=status)
 
 
 def _text_response(handler: BaseHTTPRequestHandler, message: str, status: int) -> None:
@@ -33,6 +103,7 @@ def _text_response(handler: BaseHTTPRequestHandler, message: str, status: int) -
     handler.send_response(status)
     handler.send_header("Content-Type", "text/plain; charset=utf-8")
     handler.send_header("Content-Length", str(len(body)))
+    _add_security_headers(handler)
     handler.end_headers()
     handler.wfile.write(body)
 
@@ -52,6 +123,34 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _validate_pdf_uri(uri: str) -> None:
+    """Raise ValueError for obviously malformed PDF URIs."""
+    if len(uri) > 4096:
+        raise ValueError("PDF URI too long (max 4096 characters)")
+    if "\x00" in uri:
+        raise ValueError("PDF URI contains null byte")
+
+
+def _check_web_assets() -> None:
+    """Warn to stderr if required frontend assets are missing."""
+    required = ["index.html"]
+    missing = [f for f in required if not (WEB_DIR / f).is_file()]
+    if missing:
+        print(
+            f"WARNING [apw] Missing web assets in {WEB_DIR}: {missing}. "
+            "Run 'npm run build' to build frontend assets before serving.",
+            file=sys.stderr,
+        )
+
+
+def _validate_config(args: argparse.Namespace) -> None:
+    """Raise SystemExit for invalid configuration values."""
+    if not (1 <= args.port <= 65535):
+        raise SystemExit(f"Invalid --port {args.port}: must be 1–65535.")
+    if args.pdf_root is not None and not args.pdf_root.exists():
+        raise SystemExit(f"--pdf-root does not exist: {args.pdf_root}")
+
+
 def _create_handler(
     service: AgentPdfWorkbenchService,
     *,
@@ -68,13 +167,27 @@ def _create_handler(
             query = parse_qs(parsed.query)
 
             if path == "/api/health":
-                _json_response(self, {"ok": True, "service": "agent-pdf-workbench"})
+                _json_response(
+                    self,
+                    {
+                        "ok": True,
+                        "service": "agent-pdf-workbench",
+                        "version": _APP_VERSION,
+                        "schema_version": SCHEMA_VERSION,
+                        "web_assets_present": (WEB_DIR / "index.html").is_file(),
+                    },
+                )
                 return
 
             if path == "/api/list-actions":
                 session_id = query.get("session_id", [None])[0]
                 if not session_id:
-                    _json_response(self, {"error": "session_id is required"}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(
+                        self,
+                        "session_id is required",
+                        code="MISSING_FIELD",
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
                     return
                 after_raw = query.get("after_id", [None])[0]
                 limit_raw = query.get("limit", [100])[0]
@@ -83,7 +196,7 @@ def _create_handler(
                     limit = int(limit_raw) if limit_raw is not None else 100
                     payload = service.list_actions(session_id=session_id, after_id=after_id, limit=limit)
                 except ValueError as exc:
-                    _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
                     return
                 _json_response(self, payload)
                 return
@@ -91,14 +204,19 @@ def _create_handler(
             if path == "/api/annotations":
                 session_id = query.get("session_id", [None])[0]
                 if not session_id:
-                    _json_response(self, {"error": "session_id is required"}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(
+                        self,
+                        "session_id is required",
+                        code="MISSING_FIELD",
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
                     return
                 limit_raw = query.get("limit", [1000])[0]
                 try:
                     limit = int(limit_raw) if limit_raw is not None else 1000
                     payload = service.list_annotations(session_id=session_id, limit=limit)
                 except ValueError as exc:
-                    _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
                     return
                 _json_response(self, payload)
                 return
@@ -106,14 +224,19 @@ def _create_handler(
             if path == "/api/notes":
                 session_id = query.get("session_id", [None])[0]
                 if not session_id:
-                    _json_response(self, {"error": "session_id is required"}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(
+                        self,
+                        "session_id is required",
+                        code="MISSING_FIELD",
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
                     return
                 limit_raw = query.get("limit", [1000])[0]
                 try:
                     limit = int(limit_raw) if limit_raw is not None else 1000
                     payload = service.list_notes(session_id=session_id, limit=limit)
                 except ValueError as exc:
-                    _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
                     return
                 _json_response(self, payload)
                 return
@@ -121,7 +244,17 @@ def _create_handler(
             if path == "/api/pdf":
                 uri = query.get("uri", [None])[0]
                 if not uri:
-                    _json_response(self, {"error": "uri query is required"}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(
+                        self,
+                        "uri query parameter is required",
+                        code="MISSING_FIELD",
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+                try:
+                    _validate_pdf_uri(uri)
+                except ValueError as exc:
+                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
                     return
                 self._serve_pdf(uri)
                 return
@@ -144,7 +277,7 @@ def _create_handler(
             try:
                 body = self._read_json_body()
             except ValueError as exc:
-                _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
                 return
 
             if path == "/api/open-paper":
@@ -157,8 +290,14 @@ def _create_handler(
                         metadata=body.get("metadata"),
                     )
                 except KeyError as exc:
-                    _json_response(self, {"error": f"missing field: {exc}"}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(
+                        self,
+                        f"missing field: {exc}",
+                        code="MISSING_FIELD",
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
                     return
+                _audit("open_session", session_id=payload["id"], paper_ref=payload["paper_ref"])
                 _json_response(self, payload, status=HTTPStatus.CREATED)
                 return
 
@@ -173,10 +312,15 @@ def _create_handler(
                         source=body.get("source", "viewer"),
                     )
                 except KeyError as exc:
-                    _json_response(self, {"error": f"missing field: {exc}"}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(
+                        self,
+                        f"missing field: {exc}",
+                        code="MISSING_FIELD",
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
                     return
                 except ValueError as exc:
-                    _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
                     return
                 _json_response(self, payload, status=HTTPStatus.CREATED)
                 return
@@ -184,13 +328,19 @@ def _create_handler(
             if path == "/api/close-paper":
                 session_id = body.get("session_id")
                 if not session_id:
-                    _json_response(self, {"error": "missing field: session_id"}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(
+                        self,
+                        "missing field: session_id",
+                        code="MISSING_FIELD",
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
                     return
                 try:
                     payload = service.close_paper(session_id=session_id)
                 except ValueError as exc:
-                    _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
                     return
+                _audit("close_session", session_id=session_id)
                 _json_response(self, payload)
                 return
 
@@ -198,19 +348,25 @@ def _create_handler(
                 session_id = body.get("session_id")
                 annotation = body.get("annotation")
                 if not session_id:
-                    _json_response(self, {"error": "missing field: session_id"}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(
+                        self,
+                        "missing field: session_id",
+                        code="MISSING_FIELD",
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
                     return
                 if not isinstance(annotation, dict):
-                    _json_response(
+                    _error_response(
                         self,
-                        {"error": "missing field: annotation"},
+                        "missing field: annotation",
+                        code="MISSING_FIELD",
                         status=HTTPStatus.BAD_REQUEST,
                     )
                     return
                 try:
                     payload = service.upsert_annotation(session_id=session_id, annotation=annotation)
                 except ValueError as exc:
-                    _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
                     return
                 _json_response(self, payload, status=HTTPStatus.CREATED)
                 return
@@ -219,20 +375,27 @@ def _create_handler(
                 session_id = body.get("session_id")
                 annotation_id = body.get("annotation_id")
                 if not session_id:
-                    _json_response(self, {"error": "missing field: session_id"}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(
+                        self,
+                        "missing field: session_id",
+                        code="MISSING_FIELD",
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
                     return
                 if not isinstance(annotation_id, str):
-                    _json_response(
+                    _error_response(
                         self,
-                        {"error": "missing field: annotation_id"},
+                        "missing field: annotation_id",
+                        code="MISSING_FIELD",
                         status=HTTPStatus.BAD_REQUEST,
                     )
                     return
                 try:
                     payload = service.delete_annotation(session_id=session_id, annotation_id=annotation_id)
                 except ValueError as exc:
-                    _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
                     return
+                _audit("delete_annotation", session_id=session_id, annotation_id=annotation_id)
                 _json_response(self, payload)
                 return
 
@@ -240,19 +403,25 @@ def _create_handler(
                 session_id = body.get("session_id")
                 note = body.get("note")
                 if not session_id:
-                    _json_response(self, {"error": "missing field: session_id"}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(
+                        self,
+                        "missing field: session_id",
+                        code="MISSING_FIELD",
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
                     return
                 if not isinstance(note, dict):
-                    _json_response(
+                    _error_response(
                         self,
-                        {"error": "missing field: note"},
+                        "missing field: note",
+                        code="MISSING_FIELD",
                         status=HTTPStatus.BAD_REQUEST,
                     )
                     return
                 try:
                     payload = service.upsert_note(session_id=session_id, note=note)
                 except ValueError as exc:
-                    _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
                     return
                 _json_response(self, payload, status=HTTPStatus.CREATED)
                 return
@@ -261,20 +430,27 @@ def _create_handler(
                 session_id = body.get("session_id")
                 note_id = body.get("note_id")
                 if not session_id:
-                    _json_response(self, {"error": "missing field: session_id"}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(
+                        self,
+                        "missing field: session_id",
+                        code="MISSING_FIELD",
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
                     return
                 if not isinstance(note_id, str):
-                    _json_response(
+                    _error_response(
                         self,
-                        {"error": "missing field: note_id"},
+                        "missing field: note_id",
+                        code="MISSING_FIELD",
                         status=HTTPStatus.BAD_REQUEST,
                     )
                     return
                 try:
                     payload = service.delete_note(session_id=session_id, note_id=note_id)
                 except ValueError as exc:
-                    _json_response(self, {"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
                     return
+                _audit("delete_note", session_id=session_id, note_id=note_id)
                 _json_response(self, payload)
                 return
 
@@ -292,6 +468,10 @@ def _create_handler(
                 length = int(length_raw)
             except ValueError as exc:
                 raise ValueError("Invalid Content-Length") from exc
+            if length > _MAX_REQUEST_BODY:
+                raise ValueError(
+                    f"Request body too large: {length} bytes (max {_MAX_REQUEST_BODY})"
+                )
             raw = self.rfile.read(length)
             if not raw:
                 return {}
@@ -306,9 +486,10 @@ def _create_handler(
         def _serve_pdf(self, uri: str) -> None:
             if uri.startswith("http://") or uri.startswith("https://"):
                 if not allow_remote_pdf:
-                    _json_response(
+                    _error_response(
                         self,
-                        {"error": "remote PDF fetch is disabled (set APW_ALLOW_REMOTE_PDF=1 to enable)"},
+                        "remote PDF fetch is disabled (set APW_ALLOW_REMOTE_PDF=1 to enable)",
+                        code="FORBIDDEN",
                         status=HTTPStatus.FORBIDDEN,
                     )
                     return
@@ -317,16 +498,18 @@ def _create_handler(
                         content = resp.read()
                         content_type = resp.headers.get_content_type() or "application/pdf"
                 except HTTPError as exc:
-                    _json_response(
+                    _error_response(
                         self,
-                        {"error": f"remote PDF fetch failed: upstream HTTP {exc.code}"},
+                        f"remote PDF fetch failed: upstream HTTP {exc.code}",
+                        code="BAD_GATEWAY",
                         status=HTTPStatus.BAD_GATEWAY,
                     )
                     return
                 except (URLError, socket.timeout, TimeoutError, OSError) as exc:
-                    _json_response(
+                    _error_response(
                         self,
-                        {"error": f"remote PDF fetch failed: {exc}"},
+                        f"remote PDF fetch failed: {exc}",
+                        code="BAD_GATEWAY",
                         status=HTTPStatus.BAD_GATEWAY,
                     )
                     return
@@ -337,9 +520,10 @@ def _create_handler(
                 else:
                     file_path = file_path.resolve()
                 if resolved_pdf_root is not None and not _is_within_directory(file_path, resolved_pdf_root):
-                    _json_response(
+                    _error_response(
                         self,
-                        {"error": f"PDF path must be inside configured root: {resolved_pdf_root}"},
+                        f"PDF path must be inside configured root: {resolved_pdf_root}",
+                        code="FORBIDDEN",
                         status=HTTPStatus.FORBIDDEN,
                     )
                     return
@@ -351,6 +535,7 @@ def _create_handler(
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(content)))
+            _add_security_headers(self)
             self.end_headers()
             self.wfile.write(content)
 
@@ -364,6 +549,7 @@ def _create_handler(
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", content_type or "application/octet-stream")
             self.send_header("Content-Length", str(len(data)))
+            _add_security_headers(self)
             self.end_headers()
             self.wfile.write(data)
 
@@ -391,13 +577,41 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    log_level_name = os.environ.get("APW_LOG_LEVEL", "INFO").upper()
+    log_level = getattr(logging, log_level_name, logging.INFO)
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        stream=sys.stderr,
+    )
+
     args = build_parser().parse_args()
+    _validate_config(args)
+
+    if args.host not in _LOCAL_HOSTS:
+        print(
+            f"WARNING [apw] Binding to {args.host!r} exposes this server outside localhost. "
+            "This is not recommended for local single-user usage.",
+            file=sys.stderr,
+        )
+
+    _check_web_assets()
+
     service = AgentPdfWorkbenchService(db_path=args.db_path)
     server = ThreadingHTTPServer(
         (args.host, args.port),
         _create_handler(service, allow_remote_pdf=args.allow_remote_pdf, pdf_root=args.pdf_root),
     )
-    print(f"agent-pdf-workbench viewer server running on http://{args.host}:{args.port}")
+
+    def _shutdown(signum: int, frame: object) -> None:
+        # Schedule shutdown from the signal handler; server.shutdown() blocks
+        # until serve_forever() exits so we run it in a thread-safe way by
+        # just calling it directly (ThreadingHTTPServer handles it correctly).
+        server.shutdown()
+
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    print(f"agent-pdf-workbench viewer server running on http://{args.host}:{args.port}", file=sys.stderr)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

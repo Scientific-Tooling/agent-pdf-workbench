@@ -17,11 +17,11 @@ Traditional PDF readers do not expose user interactions to an AI agent. This pro
 
 Current repo focus:
 
-- local event store (SQLite)
+- local event store (SQLite with WAL mode)
 - server-side annotation/note CRUD store (SQLite)
 - stable Python service API
 - MCP server entrypoint (for Codex/Claude tool integration)
-- minimal dev CLI for local testing
+- dev CLI for local testing, backup, export, and diagnostics
 - local PDF.js-based viewer server with event capture
 
 Future scope:
@@ -30,20 +30,56 @@ Future scope:
 - richer annotation model
 - integration adapter for RKS (`paper_id -> pdf_uri`)
 
-## Quick start
+## Quick start (one command)
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests -p "test_*.py"
-PYTHONPATH=src python3 -m agent_pdf_workbench.dev_cli --db-path /tmp/apw/events.db open-paper --paper-ref "10.48550/arXiv.1706.03762" --pdf-uri "/tmp/paper.pdf"
+bash bootstrap.sh
 ```
 
-Full walkthrough:
+Then start the server:
 
-- [docs/tutorial.md](docs/tutorial.md)
+```bash
+apw-viewer-server --db-path ~/.apw/events.db --pdf-root ~/Papers
+```
+
+Open: `http://127.0.0.1:8790`
+
+## Recommended local production profile
+
+```bash
+apw-viewer-server \
+  --db-path ~/.apw/events.db \
+  --pdf-root ~/Papers
+```
+
+- `--pdf-root` restricts local PDF access to that directory (recommended).
+- Server always binds to `127.0.0.1` — never exposed to the network by default.
+- Set `APW_LOG_LEVEL=DEBUG` for verbose logging.
+- See [docs/security-local.md](docs/security-local.md) for the full threat model.
+
+## Dev CLI
+
+```bash
+# Session lifecycle
+apw-dev --db-path ~/.apw/events.db open-paper \
+  --paper-ref "10.48550/arXiv.1706.03762" --pdf-uri "/tmp/paper.pdf"
+apw-dev --db-path ~/.apw/events.db list-actions --session-id ps_abc123
+apw-dev --db-path ~/.apw/events.db close-paper --session-id ps_abc123
+
+# Backup and maintenance
+apw-dev --db-path ~/.apw/events.db backup --output backup/events.db
+apw-dev --db-path ~/.apw/events.db checkpoint
+apw-dev --db-path ~/.apw/events.db export --output workspace.json
+
+# Environment check
+apw-dev --db-path ~/.apw/events.db diagnostics
+```
+
+See [docs/operations-local.md](docs/operations-local.md) for the full operations runbook.
 
 ## Frontend development
 
-The viewer frontend is now engineered with `Vite + React + TypeScript`.
+The viewer frontend is engineered with `Vite + React + TypeScript`.
 
 Source of truth:
 
@@ -63,8 +99,9 @@ Commands:
 npm install
 npm run format:check
 npm run test:unit
+npm run test:python:unit        # unit tests only
+npm run test:python:integration # integration tests only
 npm run test:e2e
-npm run test:python
 npm run check:frontend
 npm run verify
 ```
@@ -85,7 +122,7 @@ For local frontend dev with hot reload:
 
 ## Agent skill
 
-This repo now includes a reusable skill for agents that need to open a PDF in this app:
+This repo includes a reusable skill for agents that need to open a PDF in this app:
 
 - [skills/apw-open-pdf-session/SKILL.md](skills/apw-open-pdf-session/SKILL.md)
 
@@ -110,23 +147,27 @@ Exposed tools (v0):
 - `list_actions`
 - `close_paper`
 
-## PDF viewer (v0)
+## PDF viewer
 
 Run local server:
 
 ```bash
-PYTHONPATH=src python3 -m agent_pdf_workbench.viewer_server --db-path /tmp/apw/events.db --port 8790
+apw-viewer-server --db-path ~/.apw/events.db --pdf-root ~/Papers
 ```
 
 Security defaults:
 
+- server binds to `127.0.0.1` (non-local bind prints a warning)
 - remote PDF fetch is disabled by default; enable explicitly with `--allow-remote-pdf` or `APW_ALLOW_REMOTE_PDF=1`
-- optionally constrain local PDF access with `--pdf-root /path/to/pdfs` (or `APW_PDF_ROOT`)
+- constrain local PDF access with `--pdf-root /path/to/pdfs` (recommended; or `APW_PDF_ROOT`)
+- all responses include security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Cache-Control`)
+- POST body limit: 1 MiB
 
-Then open:
+Health check:
 
-```text
-http://127.0.0.1:8790
+```bash
+curl http://127.0.0.1:8790/api/health
+# {"ok": true, "service": "agent-pdf-workbench", "version": "0.1.0", "schema_version": 1, ...}
 ```
 
 Current viewer events:
@@ -150,19 +191,27 @@ Current viewer workflow features for literature reading:
 - export reading outputs as JSON and Markdown
 - reading progress + recent papers (local persistence)
 
-HTTP API additions for domain state:
+HTTP API:
 
+- `GET /api/health` — service health, version, schema version
+- `GET /api/list-actions?session_id=...&after_id=...&limit=...`
 - `GET /api/annotations?session_id=...&limit=...`
+- `GET /api/notes?session_id=...&limit=...`
+- `POST /api/open-paper` (`{paper_ref, pdf_uri, agent_id?, user_id?, metadata?}`)
+- `POST /api/record-action` (`{session_id, event_type, page?, selection_text?, payload?, source?}`)
+- `POST /api/close-paper` (`{session_id}`)
 - `POST /api/annotations` (`{session_id, annotation}`)
 - `POST /api/annotations/delete` (`{session_id, annotation_id}`)
-- `GET /api/notes?session_id=...&limit=...`
 - `POST /api/notes` (`{session_id, note}`)
 - `POST /api/notes/delete` (`{session_id, note_id}`)
+
+Error responses always include `{"error": "...", "code": "..."}` with a machine-readable code
+(`MISSING_FIELD`, `VALIDATION_ERROR`, `FORBIDDEN`, `BAD_GATEWAY`).
 
 E2E main-path test:
 
 ```bash
-PYTHONPATH=src python3 -m unittest tests.test_viewer_server.ViewerServerApiE2ETest
+npm run test:smoke
 npm run test:e2e
 ```
 
@@ -170,15 +219,36 @@ npm run test:e2e
 
 ```text
 src/agent_pdf_workbench/
-  store.py        # SQLite persistence for sessions/events
-  service.py      # tool-facing service layer
-  dev_cli.py      # local smoke-test CLI
-  mcp_server.py   # MCP server entrypoint
+  store.py         # SQLite persistence (sessions/events/annotations/notes + migrations)
+  service.py       # tool-facing service layer (backup, export, checkpoint)
+  dev_cli.py       # dev CLI (open-paper, backup, export, checkpoint, diagnostics, ...)
+  mcp_server.py    # MCP server entrypoint
   viewer_server.py # local web UI/API server
-  web/            # built frontend assets served by viewer_server.py
+  web/             # built frontend assets served by viewer_server.py
 frontend/
-  index.html      # Vite entry HTML
-  src/            # TypeScript frontend source
+  index.html       # Vite entry HTML
+  src/             # TypeScript frontend source
 tests/
-  test_store.py
+  unit/            # pure unit tests (no HTTP server)
+    test_store.py
+    test_api_validation.py
+  integration/     # integration tests (in-process HTTP server + load/regression)
+    test_viewer_server.py
+    test_load.py
+.github/
+  workflows/ci.yml # CI: Python 3.10–3.12, frontend checks, Playwright E2E
+docs/
+  tutorial.md
+  operations-local.md    # runbook: backup, restore, upgrade, rollback
+  security-local.md      # threat model and mitigations
+  release-checklist.md   # pre/post-release steps
+  production-readiness-roadmap.md
+bootstrap.sh       # one-command local install
 ```
+
+## Documentation
+
+- [docs/tutorial.md](docs/tutorial.md) — walkthrough
+- [docs/operations-local.md](docs/operations-local.md) — backup, restore, upgrade, rollback
+- [docs/security-local.md](docs/security-local.md) — threat model and mitigations
+- [docs/release-checklist.md](docs/release-checklist.md) — release process

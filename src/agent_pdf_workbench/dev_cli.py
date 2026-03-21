@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 from .service import AgentPdfWorkbenchService
+from .store import SCHEMA_VERSION
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -17,6 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    # ── paper session lifecycle ────────────────────────────────────────────────
     open_parser = subparsers.add_parser("open-paper", help="Create a new paper reading session.")
     open_parser.add_argument("--paper-ref", required=True)
     open_parser.add_argument("--pdf-uri", required=True)
@@ -42,6 +47,44 @@ def build_parser() -> argparse.ArgumentParser:
     close_parser = subparsers.add_parser("close-paper", help="Close a paper reading session.")
     close_parser.add_argument("--session-id", required=True)
     close_parser.set_defaults(handler=handle_close_paper)
+
+    # ── backup / durability ────────────────────────────────────────────────────
+    backup_parser = subparsers.add_parser(
+        "backup",
+        help="Create an online SQLite backup of the workspace database.",
+    )
+    backup_parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="Destination path for the backup file (e.g. backup/events-2026-03-21.db).",
+    )
+    backup_parser.set_defaults(handler=handle_backup)
+
+    checkpoint_parser = subparsers.add_parser(
+        "checkpoint",
+        help="Force a WAL checkpoint to compact the database.",
+    )
+    checkpoint_parser.set_defaults(handler=handle_checkpoint)
+
+    # ── export ─────────────────────────────────────────────────────────────────
+    export_parser = subparsers.add_parser(
+        "export",
+        help="Export all workspace data to a JSON file for offline analysis or backup.",
+    )
+    export_parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Output path (default: stdout).",
+    )
+    export_parser.set_defaults(handler=handle_export)
+
+    # ── diagnostics ────────────────────────────────────────────────────────────
+    subparsers.add_parser(
+        "diagnostics",
+        help="Check environment and report Python, Node, Playwright, DB, and asset status.",
+    ).set_defaults(handler=handle_diagnostics)
 
     return parser
 
@@ -88,6 +131,104 @@ def handle_close_paper(args: argparse.Namespace) -> int:
     payload = _service(args).close_paper(session_id=args.session_id)
     print(json.dumps(payload, indent=2))
     return 0
+
+
+def handle_backup(args: argparse.Namespace) -> int:
+    payload = _service(args).backup(target_path=args.output)
+    print(json.dumps(payload, indent=2))
+    return 0
+
+
+def handle_checkpoint(args: argparse.Namespace) -> int:
+    payload = _service(args).checkpoint()
+    print(json.dumps(payload, indent=2))
+    return 0
+
+
+def handle_export(args: argparse.Namespace) -> int:
+    payload = _service(args).export_workspace()
+    text = json.dumps(payload, indent=2, ensure_ascii=False)
+    if args.output is None:
+        print(text)
+    else:
+        args.output.write_text(text, encoding="utf-8")
+        print(f"Exported {payload['session_count']} session(s) to {args.output}", file=sys.stderr)
+    return 0
+
+
+def handle_diagnostics(args: argparse.Namespace) -> int:
+    results: list[dict] = []
+
+    def _check(name: str, ok: bool, detail: str) -> None:
+        status = "ok" if ok else "fail"
+        results.append({"check": name, "status": status, "detail": detail})
+        icon = "✓" if ok else "✗"
+        print(f"  {icon} {name}: {detail}")
+
+    print("agent-pdf-workbench diagnostics")
+    print("=" * 40)
+
+    # Python version
+    import sys as _sys
+    py_ver = _sys.version_info
+    py_ok = py_ver >= (3, 10)
+    _check("python_version", py_ok, f"{py_ver.major}.{py_ver.minor}.{py_ver.micro} (need >=3.10)")
+
+    # Node / npm
+    node_path = shutil.which("node")
+    npm_path = shutil.which("npm")
+    _check("node", node_path is not None, node_path or "not found")
+    _check("npm", npm_path is not None, npm_path or "not found")
+
+    # Playwright browser
+    playwright_ok = False
+    playwright_detail = "not checked (npm not available)"
+    if npm_path:
+        try:
+            result = subprocess.run(
+                ["npx", "playwright", "install", "--dry-run", "chromium"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            # If the browser is already installed, the dry-run exits 0 with no action lines
+            playwright_ok = result.returncode == 0
+            playwright_detail = "chromium available" if playwright_ok else "chromium not installed (run: npx playwright install chromium)"
+        except Exception as exc:
+            playwright_detail = f"check failed: {exc}"
+    _check("playwright_chromium", playwright_ok, playwright_detail)
+
+    # Database
+    db_exists = args.db_path.exists()
+    db_detail = str(args.db_path.resolve())
+    if db_exists:
+        try:
+            svc = _service(args)
+            schema_ver = svc._store.get_schema_version()
+            db_detail = f"{db_detail} (schema v{schema_ver}, expected v{SCHEMA_VERSION})"
+            db_ok = schema_ver == SCHEMA_VERSION
+        except Exception as exc:
+            db_ok = False
+            db_detail = f"{db_detail} — error: {exc}"
+    else:
+        db_ok = True  # Not existing yet is fine (will be created on first run)
+        db_detail = f"{db_detail} (not yet created)"
+    _check("database", db_ok, db_detail)
+
+    # Web assets
+    from .viewer_server import WEB_DIR
+    index_html = WEB_DIR / "index.html"
+    assets_ok = index_html.is_file()
+    _check(
+        "web_assets",
+        assets_ok,
+        str(WEB_DIR) + (" (index.html present)" if assets_ok else " (missing — run: npm run build)"),
+    )
+
+    print("=" * 40)
+    all_ok = all(r["status"] == "ok" for r in results)
+    print("All checks passed." if all_ok else "Some checks failed. See above.")
+    return 0 if all_ok else 1
 
 
 def main() -> int:

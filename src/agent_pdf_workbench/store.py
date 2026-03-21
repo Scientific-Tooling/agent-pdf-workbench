@@ -10,6 +10,79 @@ from typing import Any
 DEFAULT_LIST_LIMIT = 100
 MAX_LIST_LIMIT = 1000
 
+# Increment this when adding a new migration entry to _MIGRATIONS.
+SCHEMA_VERSION = 1
+
+# Each entry: (version: int, description: str, statements: list[str])
+# Migrations are applied in version order and are forward-only.
+_MIGRATIONS: list[tuple[int, str, list[str]]] = [
+    (
+        1,
+        "initial schema",
+        [
+            """
+            CREATE TABLE IF NOT EXISTS paper_sessions (
+                id TEXT PRIMARY KEY,
+                paper_ref TEXT NOT NULL,
+                pdf_uri TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                opened_at TEXT NOT NULL,
+                closed_at TEXT
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS action_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                page INTEGER,
+                selection_text TEXT,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                source TEXT NOT NULL DEFAULT 'viewer',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES paper_sessions(id)
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_action_events_session_id_id
+                ON action_events(session_id, id)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS annotations (
+                session_id TEXT NOT NULL,
+                annotation_id TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (session_id, annotation_id),
+                FOREIGN KEY (session_id) REFERENCES paper_sessions(id)
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_annotations_session_updated_at
+                ON annotations(session_id, updated_at DESC)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS notes (
+                session_id TEXT NOT NULL,
+                note_id TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (session_id, note_id),
+                FOREIGN KEY (session_id) REFERENCES paper_sessions(id)
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_notes_session_updated_at
+                ON notes(session_id, updated_at DESC)
+            """,
+        ],
+    ),
+]
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -69,69 +142,69 @@ class EventStore:
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_schema()
+        self._run_migrations()
+        self.check_integrity()
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path)
         conn.row_factory = sqlite3.Row
+        # WAL mode for better read/write concurrency and crash resilience.
+        conn.execute("PRAGMA journal_mode=WAL")
+        # NORMAL: fsync after each checkpoint (good balance for local use).
+        conn.execute("PRAGMA synchronous=NORMAL")
         return conn
 
-    def _init_schema(self) -> None:
+    def _run_migrations(self) -> None:
+        """Apply any pending forward-only migrations in version order."""
         with self._connect() as conn:
-            conn.executescript(
+            conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS paper_sessions (
-                    id TEXT PRIMARY KEY,
-                    paper_ref TEXT NOT NULL,
-                    pdf_uri TEXT NOT NULL,
-                    agent_id TEXT NOT NULL,
-                    user_id TEXT NOT NULL,
-                    metadata_json TEXT NOT NULL DEFAULT '{}',
-                    opened_at TEXT NOT NULL,
-                    closed_at TEXT
-                );
-
-                CREATE TABLE IF NOT EXISTS action_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT NOT NULL,
-                    event_type TEXT NOT NULL,
-                    page INTEGER,
-                    selection_text TEXT,
-                    payload_json TEXT NOT NULL DEFAULT '{}',
-                    source TEXT NOT NULL DEFAULT 'viewer',
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (session_id) REFERENCES paper_sessions(id)
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_action_events_session_id_id
-                    ON action_events(session_id, id);
-
-                CREATE TABLE IF NOT EXISTS annotations (
-                    session_id TEXT NOT NULL,
-                    annotation_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    PRIMARY KEY (session_id, annotation_id),
-                    FOREIGN KEY (session_id) REFERENCES paper_sessions(id)
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_annotations_session_updated_at
-                    ON annotations(session_id, updated_at DESC);
-
-                CREATE TABLE IF NOT EXISTS notes (
-                    session_id TEXT NOT NULL,
-                    note_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    PRIMARY KEY (session_id, note_id),
-                    FOREIGN KEY (session_id) REFERENCES paper_sessions(id)
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_notes_session_updated_at
-                    ON notes(session_id, updated_at DESC);
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    description TEXT NOT NULL DEFAULT '',
+                    applied_at TEXT NOT NULL
+                )
                 """
+            )
+            applied = {
+                row[0]
+                for row in conn.execute("SELECT version FROM schema_migrations").fetchall()
+            }
+            for version, description, statements in sorted(_MIGRATIONS, key=lambda m: m[0]):
+                if version in applied:
+                    continue
+                for stmt in statements:
+                    conn.execute(stmt)
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, description, applied_at) VALUES (?, ?, ?)",
+                    (version, description, _utc_now()),
+                )
+
+    def get_schema_version(self) -> int:
+        """Return the highest applied migration version, or 0 if none."""
+        with self._connect() as conn:
+            try:
+                row = conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
+                return int(row[0]) if row[0] is not None else 0
+            except sqlite3.OperationalError:
+                return 0
+
+    def check_integrity(self) -> None:
+        """Verify that the DB schema version matches the expected version.
+
+        Raises RuntimeError if the version is out of range, indicating either
+        an incomplete migration or a downgrade attempt.
+        """
+        version = self.get_schema_version()
+        if version < SCHEMA_VERSION:
+            raise RuntimeError(
+                f"DB schema version {version} is behind expected {SCHEMA_VERSION}. "
+                "This should not happen; _run_migrations() should have applied all pending migrations."
+            )
+        if version > SCHEMA_VERSION:
+            raise RuntimeError(
+                f"DB schema version {version} is newer than supported {SCHEMA_VERSION}. "
+                "Please upgrade the app to a version that supports this schema."
             )
 
     def open_session(
@@ -418,6 +491,41 @@ class EventStore:
                 (session_id, note_id),
             )
         return cur.rowcount > 0
+
+    def backup_to(self, target_path: Path) -> None:
+        """Create a consistent online backup of the database using SQLite's backup API.
+
+        The target file is created or overwritten.  Safe to call while the
+        server is running (uses SQLite's incremental backup mechanism).
+        """
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        src = sqlite3.connect(self._db_path)
+        dst = sqlite3.connect(target_path)
+        try:
+            with dst:
+                src.backup(dst)
+        finally:
+            src.close()
+            dst.close()
+
+    def checkpoint(self) -> dict:
+        """Force a WAL checkpoint and return the result counters.
+
+        Returns a dict with keys: ``log`` (pages in WAL),
+        ``checkpointed`` (pages written back to the main DB).
+        """
+        with self._connect() as conn:
+            row = conn.execute("PRAGMA wal_checkpoint(FULL)").fetchone()
+        # PRAGMA wal_checkpoint returns: (busy, log, checkpointed)
+        return {"busy": row[0], "log": row[1], "checkpointed": row[2]}
+
+    def list_all_sessions(self) -> list[PaperSession]:
+        """Return all sessions ordered by opened_at descending."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM paper_sessions ORDER BY opened_at DESC"
+            ).fetchall()
+        return [self._session_from_row(row) for row in rows]
 
     @staticmethod
     def _session_from_row(row: sqlite3.Row) -> PaperSession:

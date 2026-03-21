@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
-from agent_pdf_workbench.store import EventStore
+from agent_pdf_workbench.store import EventStore, SCHEMA_VERSION
 
 
 class EventStoreTest(unittest.TestCase):
@@ -196,6 +197,45 @@ class EventStoreTest(unittest.TestCase):
                 )
             with self.assertRaisesRegex(ValueError, "Session is closed"):
                 store.delete_note(session_id="ps_1002", note_id="note_x")
+
+
+class SchemaVersioningTest(unittest.TestCase):
+    def test_fresh_db_has_expected_schema_version(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "events.db"
+            store = EventStore(db_path)
+            self.assertEqual(store.get_schema_version(), SCHEMA_VERSION)
+
+    def test_migrations_are_idempotent(self) -> None:
+        """Constructing a second EventStore on the same DB must not fail."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "events.db"
+            EventStore(db_path)
+            store2 = EventStore(db_path)
+            self.assertEqual(store2.get_schema_version(), SCHEMA_VERSION)
+
+    def test_check_integrity_rejects_newer_version(self) -> None:
+        """A DB whose schema version exceeds SCHEMA_VERSION should raise."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "events.db"
+            store = EventStore(db_path)
+            # Manually bump the recorded version to simulate a newer DB.
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    "UPDATE schema_migrations SET version = ? WHERE version = ?",
+                    (SCHEMA_VERSION + 1, SCHEMA_VERSION),
+                )
+            with self.assertRaisesRegex(RuntimeError, "newer than supported"):
+                store.check_integrity()
+
+    def test_wal_pragma_applied(self) -> None:
+        """The journal mode should be WAL after opening the store."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "events.db"
+            EventStore(db_path)
+            with sqlite3.connect(db_path) as conn:
+                row = conn.execute("PRAGMA journal_mode").fetchone()
+                self.assertEqual(row[0], "wal")
 
 
 if __name__ == "__main__":

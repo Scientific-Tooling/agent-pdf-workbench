@@ -197,5 +197,93 @@ class ViewerServerApiE2ETest(unittest.TestCase):
             raise AssertionError(f"HTTP {exc.code}: {body}") from exc
 
 
+class ViewerServerHardeningTest(unittest.TestCase):
+    """Tests for Phase 0/1 hardening: error format, body size, security headers."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        db_path = Path(self._tmp.name) / "events.db"
+        service = AgentPdfWorkbenchService(db_path=db_path)
+        handler_cls = _create_handler(service)
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+        host, port = self._server.server_address
+        thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        thread.start()
+        self._base = f"http://{host}:{port}"
+
+    def tearDown(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._tmp.cleanup()
+
+    def _raw_request(self, method: str, url: str, payload: dict | None = None) -> tuple[int, dict, dict]:
+        """Return (status_code, response_headers, response_body_dict)."""
+        import http.client
+        from urllib.parse import urlparse as _up
+
+        parsed = _up(url)
+        conn = http.client.HTTPConnection(parsed.netloc)
+        body_bytes = None
+        headers: dict[str, str] = {}
+        if payload is not None:
+            body_bytes = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        conn.request(method, parsed.path + (f"?{parsed.query}" if parsed.query else ""), body_bytes, headers)
+        resp = conn.getresponse()
+        raw = resp.read()
+        resp_headers = dict(resp.getheaders())
+        try:
+            body = json.loads(raw.decode("utf-8")) if raw else {}
+        except json.JSONDecodeError:
+            body = {}
+        conn.close()
+        return resp.status, resp_headers, body
+
+    def test_error_response_has_code_field(self) -> None:
+        status, _, body = self._raw_request("GET", f"{self._base}/api/list-actions")
+        self.assertEqual(status, 400)
+        self.assertIn("error", body)
+        self.assertIn("code", body)
+        self.assertEqual(body["code"], "MISSING_FIELD")
+
+    def test_security_headers_present_on_json_response(self) -> None:
+        _, headers, _ = self._raw_request("GET", f"{self._base}/api/health")
+        # Header names from http.client come back in mixed/lower case depending on Python version.
+        header_keys_lower = {k.lower() for k in headers}
+        self.assertIn("x-content-type-options", header_keys_lower)
+        self.assertIn("x-frame-options", header_keys_lower)
+        self.assertIn("cache-control", header_keys_lower)
+
+    def test_oversized_body_rejected(self) -> None:
+        import http.client
+        from urllib.parse import urlparse as _up
+
+        url = f"{self._base}/api/open-paper"
+        parsed = _up(url)
+        conn = http.client.HTTPConnection(parsed.netloc)
+        # Declare a Content-Length just over the 1 MiB limit without sending a body.
+        # The server rejects based on the header value before reading the body.
+        conn.putrequest("POST", parsed.path)
+        conn.putheader("Content-Type", "application/json")
+        conn.putheader("Content-Length", str(2 * 1024 * 1024))
+        conn.endheaders()
+        resp = conn.getresponse()
+        resp.read()
+        conn.close()
+        self.assertEqual(resp.status, 400)
+
+    def test_missing_session_id_returns_missing_field_code(self) -> None:
+        status, _, body = self._raw_request("GET", f"{self._base}/api/annotations")
+        self.assertEqual(status, 400)
+        self.assertEqual(body.get("code"), "MISSING_FIELD")
+
+    def test_pdf_uri_null_byte_rejected(self) -> None:
+        from urllib.parse import quote
+        uri = quote("/tmp/bad\x00file.pdf", safe="")
+        status, _, body = self._raw_request("GET", f"{self._base}/api/pdf?uri={uri}")
+        self.assertEqual(status, 400)
+        self.assertIn("null byte", body.get("error", "").lower())
+
+
 if __name__ == "__main__":
     unittest.main()

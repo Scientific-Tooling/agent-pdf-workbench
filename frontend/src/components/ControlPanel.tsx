@@ -37,7 +37,10 @@ export function ControlPanel(props: ControlPanelProps) {
 
   return (
     <aside className="panel controls">
-      <h1>Agent PDF Workbench</h1>
+      <div className="app-header">
+        <div className="app-logo">📄</div>
+        <h1>PDF Workbench</h1>
+      </div>
 
       <section className="card">
         <h2>Session</h2>
@@ -64,6 +67,7 @@ export function ControlPanel(props: ControlPanelProps) {
           </button>
           <button
             id="closePaperBtn"
+            className="danger-btn"
             onClick={async () => {
               try {
                 await onCloseSession();
@@ -75,14 +79,22 @@ export function ControlPanel(props: ControlPanelProps) {
             Close Session
           </button>
         </div>
-        <p id="sessionInfo">Session: {sessionId ?? "-"}</p>
-        <p id="statusText">Status: {status}</p>
+        <div className="info-row">
+          <div className="info-chip">
+            <span className="info-chip-label">ID</span>
+            <span className="info-chip-value">{sessionId ?? "—"}</span>
+          </div>
+          <div className="info-chip">
+            <span className="info-chip-label">Status</span>
+            <span className="info-chip-value">{status}</span>
+          </div>
+        </div>
       </section>
 
       <section className="card">
         <div className="section-head">
           <h2>Recent Papers</h2>
-          <button id="refreshRecentBtn" onClick={() => onRefreshRecent()}>
+          <button id="refreshRecentBtn" className="ghost-btn" onClick={() => onRefreshRecent()}>
             Refresh
           </button>
         </div>
@@ -90,9 +102,11 @@ export function ControlPanel(props: ControlPanelProps) {
           {recentPapers.length === 0 && <li className="muted">No recent papers</li>}
           {recentPapers.map((recent) => (
             <li key={`${recent.paperRef}:${recent.updatedAt}`}>
-              <div>{`${recent.paperRef} (p.${recent.lastPage})`}</div>
-              <div className="muted">{recent.pdfUri}</div>
-              <button onClick={() => onLoadRecent(recent)}>Load</button>
+              <div style={{ fontWeight: 600 }}>{`${recent.paperRef}`}</div>
+              <div className="muted">{`p.${recent.lastPage} · ${recent.pdfUri}`}</div>
+              <button className="ghost-btn" onClick={() => onLoadRecent(recent)}>
+                Load
+              </button>
             </li>
           ))}
         </ul>
@@ -103,8 +117,10 @@ export function ControlPanel(props: ControlPanelProps) {
         <ul id="outlineList" className="list compact-list">
           {outline.length === 0 && <li className="muted">No outline</li>}
           {outline.map((item) => (
-            <li key={`${item.level}-${item.page}-${item.title}`} style={{ marginLeft: `${item.level * 12}px` }}>
+            <li key={`${item.level}-${item.page}-${item.title}`} style={{ marginLeft: `${item.level * 10}px` }}>
               <button
+                className="ghost-btn"
+                style={{ justifyContent: "flex-start", textAlign: "left", width: "100%" }}
                 onClick={async () => {
                   try {
                     await onJumpToOutlinePage(item.page);
@@ -113,7 +129,8 @@ export function ControlPanel(props: ControlPanelProps) {
                   }
                 }}
               >
-                {`p.${item.page} ${item.title}`}
+                <span className="muted" style={{ fontSize: "0.72rem", flexShrink: 0 }}>{`p.${item.page}`}</span>
+                {item.title}
               </button>
             </li>
           ))}

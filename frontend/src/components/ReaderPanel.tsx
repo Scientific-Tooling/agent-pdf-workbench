@@ -88,9 +88,12 @@ export function ReaderPanel(props: ReaderPanelProps) {
   return (
     <section className="panel reader">
       <div className="toolbar reader-toolbar">
+        {/* Page navigation */}
         <div className="row">
           <button
             id="prevBtn"
+            className="ghost-btn icon-btn"
+            title="Previous page (j)"
             onClick={async () => {
               try {
                 await onGoPrevPage();
@@ -99,10 +102,12 @@ export function ReaderPanel(props: ReaderPanelProps) {
               }
             }}
           >
-            Prev
+            ‹ Prev
           </button>
           <button
             id="nextBtn"
+            className="ghost-btn icon-btn"
+            title="Next page (k)"
             onClick={async () => {
               try {
                 await onGoNextPage();
@@ -111,22 +116,36 @@ export function ReaderPanel(props: ReaderPanelProps) {
               }
             }}
           >
-            Next
+            Next ›
           </button>
         </div>
+
+        <div className="toolbar-divider" />
+
+        {/* Page jump */}
         <div className="row">
           <label className="inline-label">
-            Page
+            p.
             <input
               id="pageJumpInput"
               type="number"
               min={1}
               value={pageJumpInput}
               onChange={(event) => onPageJumpInputChange(event.target.value)}
+              onKeyDown={async (event) => {
+                if (event.key === "Enter") {
+                  try {
+                    await onJumpToPageInput();
+                  } catch (error) {
+                    onError(error, "Failed to jump page");
+                  }
+                }
+              }}
             />
           </label>
           <button
             id="pageJumpBtn"
+            className="ghost-btn"
             onClick={async () => {
               try {
                 await onJumpToPageInput();
@@ -137,18 +156,37 @@ export function ReaderPanel(props: ReaderPanelProps) {
           >
             Go
           </button>
-          <span id="pageInfo">{pdfDoc ? `Page ${page} / ${pdfDoc.numPages}` : "Page - / -"}</span>
+          <span id="pageInfo" className="page-info">
+            {pdfDoc ? `${page} / ${pdfDoc.numPages}` : "— / —"}
+          </span>
         </div>
+
+        <div className="toolbar-divider" />
+
+        {/* Zoom */}
         <div className="row">
-          <button id="zoomOutBtn" onClick={async () => onApplyZoom(zoom - 0.2)}>
-            -
+          <button
+            id="zoomOutBtn"
+            className="ghost-btn icon-btn"
+            title="Zoom out"
+            onClick={async () => onApplyZoom(zoom - 0.2)}
+          >
+            −
           </button>
-          <span id="zoomInfo">{`${Math.round(zoom * 100)}%`}</span>
-          <button id="zoomInBtn" onClick={async () => onApplyZoom(zoom + 0.2)}>
+          <span id="zoomInfo" className="zoom-info">
+            {`${Math.round(zoom * 100)}%`}
+          </span>
+          <button
+            id="zoomInBtn"
+            className="ghost-btn icon-btn"
+            title="Zoom in"
+            onClick={async () => onApplyZoom(zoom + 0.2)}
+          >
             +
           </button>
           <button
             id="fitWidthBtn"
+            className="ghost-btn"
             onClick={async () => {
               try {
                 await onFitWidth();
@@ -162,6 +200,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
         </div>
       </div>
 
+      {/* Search toolbar */}
       <div className="toolbar search-toolbar">
         <input
           id="searchInput"
@@ -193,15 +232,28 @@ export function ReaderPanel(props: ReaderPanelProps) {
         <button id="searchBtn" onClick={async () => onRunSearch(searchInputValue)}>
           Search
         </button>
-        <button id="searchPrevBtn" onClick={async () => onJumpToSearchResult(searchCursor - 1)}>
-          Prev Hit
+        <button
+          id="searchPrevBtn"
+          className="ghost-btn icon-btn"
+          title="Previous match (Shift+Enter)"
+          onClick={async () => onJumpToSearchResult(searchCursor - 1)}
+        >
+          ‹
         </button>
-        <button id="searchNextBtn" onClick={async () => onJumpToSearchResult(searchCursor + 1)}>
-          Next Hit
+        <button
+          id="searchNextBtn"
+          className="ghost-btn icon-btn"
+          title="Next match (Enter)"
+          onClick={async () => onJumpToSearchResult(searchCursor + 1)}
+        >
+          ›
         </button>
-        <span id="searchInfo">{searchInfoText}</span>
+        <span id="searchInfo" className="search-info">
+          {searchInfoText}
+        </span>
       </div>
 
+      {/* PDF Stage */}
       <div id="pdfStage" ref={pdfStageRef} className="pdf-stage">
         <canvas id="pdfCanvas" ref={pdfCanvasRef} />
         <div
@@ -238,6 +290,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
           <div className="row">
             <button
               id="quickHighlightBtn"
+              className="amber-btn"
               onClick={async () => {
                 if (!hasPendingSelection) {
                   return;
@@ -253,6 +306,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
             </button>
             <button
               id="quickUnderlineBtn"
+              className="rose-btn"
               onClick={async () => {
                 if (!hasPendingSelection) {
                   return;
@@ -267,7 +321,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
               Underline
             </button>
             <button id="quickDismissBtn" className="ghost-btn" onClick={() => onHideQuickAnnotator()}>
-              Dismiss
+              ✕
             </button>
           </div>
         </div>

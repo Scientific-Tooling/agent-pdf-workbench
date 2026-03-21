@@ -78,12 +78,22 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
 
   return (
     <aside className="panel workspace">
+      {/* Annotation section */}
       <details className="card collapsible" open>
-        <summary>Annotation</summary>
+        <summary>
+          <span className="collapsible-arrow">›</span>
+          <h2 style={{ margin: 0 }}>Annotation</h2>
+          {selectedAnnotation && (
+            <span className="pill" style={{ marginLeft: "auto" }}>
+              {selectedAnnotation.id.slice(-6)}
+            </span>
+          )}
+        </summary>
         <div className="card-body">
           <div className="row">
             <button
               id="highlightBtn"
+              className="amber-btn"
               onClick={async () => {
                 try {
                   await onCreateAnnotation("highlight");
@@ -96,6 +106,7 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
             </button>
             <button
               id="underlineBtn"
+              className="rose-btn"
               onClick={async () => {
                 try {
                   await onCreateAnnotation("underline");
@@ -108,6 +119,7 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
             </button>
             <button
               id="deleteAnnotationBtn"
+              className="danger-btn"
               onClick={async () => {
                 try {
                   await onDeleteSelectedAnnotation();
@@ -116,14 +128,14 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
                 }
               }}
             >
-              Delete Selected
+              Delete
             </button>
           </div>
           <label>
-            Annotation Comment
+            Comment
             <input
               id="annotationCommentInput"
-              placeholder="Comment for current selection"
+              placeholder="Add a comment…"
               value={annotationCommentInput}
               onChange={(event) => onAnnotationCommentInputChange(event.target.value)}
               onBlur={async () => {
@@ -132,7 +144,7 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
             />
           </label>
           <label>
-            Tags (comma separated)
+            Tags
             <input
               id="annotationTagsInput"
               placeholder="method, result, question"
@@ -143,21 +155,30 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
               }}
             />
           </label>
-          <p id="selectedAnnotationInfo">Selected annotation: {selectedAnnotation ? selectedAnnotation.id : "-"}</p>
           <ul id="annotationList" className="list">
-            {sortedAnnotations.length === 0 && <li className="muted">No annotations yet</li>}
+            {sortedAnnotations.length === 0 && (
+              <li className="muted" style={{ cursor: "default" }}>
+                No annotations yet
+              </li>
+            )}
             {sortedAnnotations.map((annotation) => (
               <li
                 key={annotation.id}
-                style={annotation.id === selectedAnnotationId ? { borderColor: "#0ea5e9" } : undefined}
+                style={
+                  annotation.id === selectedAnnotationId
+                    ? { borderColor: "#3b82f6", boxShadow: "0 0 0 3px rgba(59,130,246,0.12)" }
+                    : undefined
+                }
                 onClick={() => onSelectAnnotation(annotation.id)}
               >
-                <div>
-                  <strong>{annotation.type}</strong>
-                  {` | p.${annotation.page}`}
+                <div className="row" style={{ gap: "6px" }}>
+                  <span className={`ann-type ${annotation.type}`}>{annotation.type}</span>
+                  <span className="ann-page">p.{annotation.page}</span>
                 </div>
-                <div>{annotation.quote || "(empty quote)"}</div>
-                <div className="muted">{annotation.comment || "No comment"}</div>
+                <div style={{ fontStyle: "italic", color: "#475569", fontSize: "0.8rem" }}>
+                  {annotation.quote || "(empty quote)"}
+                </div>
+                {annotation.comment && <div className="muted">{annotation.comment}</div>}
                 {annotation.tags.length > 0 && (
                   <div className="pill-list">
                     {annotation.tags.map((tag) => (
@@ -168,12 +189,14 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
                   </div>
                 )}
                 <button
+                  className="ghost-btn"
+                  style={{ alignSelf: "flex-start", marginTop: "2px" }}
                   onClick={async (event) => {
                     event.stopPropagation();
                     await onJumpToAnnotation(annotation.id);
                   }}
                 >
-                  Go
+                  Jump to ›
                 </button>
               </li>
             ))}
@@ -181,8 +204,17 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
         </div>
       </details>
 
+      {/* Notes section */}
       <details className="card collapsible" open>
-        <summary>Notes (Markdown)</summary>
+        <summary>
+          <span className="collapsible-arrow">›</span>
+          <h2 style={{ margin: 0 }}>Notes (Markdown)</h2>
+          {selectedNote && (
+            <span className="pill" style={{ marginLeft: "auto" }}>
+              {selectedNote.id.slice(-6)}
+            </span>
+          )}
+        </summary>
         <div className="card-body">
           <label>
             Title
@@ -194,7 +226,7 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
             />
           </label>
           <label>
-            Linked Annotation IDs (comma separated)
+            Linked Annotation IDs
             <input
               id="noteLinkedIdsInput"
               placeholder="ann_abc123, ann_def456"
@@ -206,8 +238,8 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
             Content
             <textarea
               id="noteMarkdownInput"
-              rows={6}
-              placeholder="Write notes in Markdown"
+              rows={5}
+              placeholder="Write notes in Markdown…"
               value={noteMarkdownInput}
               onChange={(event) => onNoteMarkdownInputChange(event.target.value)}
             />
@@ -215,6 +247,7 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
           <div className="row">
             <button
               id="saveNoteBtn"
+              className="success-btn"
               onClick={async () => {
                 try {
                   await onSaveNote();
@@ -225,11 +258,12 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
             >
               Save Note
             </button>
-            <button id="newNoteBtn" onClick={() => onNewNoteDraft()}>
+            <button id="newNoteBtn" className="ghost-btn" onClick={() => onNewNoteDraft()}>
               New Note
             </button>
             <button
               id="deleteNoteBtn"
+              className="danger-btn"
               onClick={async () => {
                 try {
                   await onDeleteSelectedNote();
@@ -238,22 +272,29 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
                 }
               }}
             >
-              Delete Selected
+              Delete
             </button>
           </div>
-          <p id="selectedNoteInfo">Selected note: {selectedNote ? selectedNote.id : "-"}</p>
           <ul id="notesList" className="list">
-            {sortedNotes.length === 0 && <li className="muted">No notes yet</li>}
+            {sortedNotes.length === 0 && (
+              <li className="muted" style={{ cursor: "default" }}>
+                No notes yet
+              </li>
+            )}
             {sortedNotes.map((note) => (
               <li
                 key={note.id}
-                style={note.id === selectedNoteId ? { borderColor: "#0ea5e9" } : undefined}
+                style={
+                  note.id === selectedNoteId
+                    ? { borderColor: "#3b82f6", boxShadow: "0 0 0 3px rgba(59,130,246,0.12)" }
+                    : undefined
+                }
                 onClick={() => onSelectNote(note.id)}
               >
-                <div>
-                  <strong>{note.title || "(untitled note)"}</strong>
+                <div style={{ fontWeight: 600, fontSize: "0.84rem" }}>{note.title || "(untitled note)"}</div>
+                <div className="muted">
+                  {note.markdown.length > 120 ? `${note.markdown.slice(0, 120)}…` : note.markdown}
                 </div>
-                <div>{note.markdown.length > 160 ? `${note.markdown.slice(0, 160)}...` : note.markdown}</div>
                 {note.linkedAnnotationIds.length > 0 && (
                   <div className="pill-list">
                     {note.linkedAnnotationIds.map((annId) => (
@@ -265,7 +306,7 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
                           await onJumpToAnnotation(annId);
                         }}
                       >
-                        {annId}
+                        {annId.slice(-8)}
                       </button>
                     ))}
                   </div>
@@ -276,48 +317,74 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
         </div>
       </details>
 
+      {/* Search results */}
       <details className="card collapsible" open>
-        <summary>Search Results</summary>
+        <summary>
+          <span className="collapsible-arrow">›</span>
+          <h2 style={{ margin: 0 }}>Search Results</h2>
+          {searchResults.length > 0 && (
+            <span className="pill" style={{ marginLeft: "auto" }}>
+              {searchResults.length}
+            </span>
+          )}
+        </summary>
         <div className="card-body">
           <ul id="searchResultsList" className="list compact-list">
-            {!searchQuery && <li className="muted">No query</li>}
-            {searchQuery && searchResults.length === 0 && <li className="muted">No matches</li>}
+            {!searchQuery && (
+              <li className="muted" style={{ cursor: "default" }}>
+                No query
+              </li>
+            )}
+            {searchQuery && searchResults.length === 0 && (
+              <li className="muted" style={{ cursor: "default" }}>
+                No matches
+              </li>
+            )}
             {searchResults.map((result, index) => (
               <li
                 key={`${result.page}:${result.matchIndex}:${index}`}
-                style={index === searchCursor ? { borderColor: "#0ea5e9" } : undefined}
+                style={
+                  index === searchCursor
+                    ? { borderColor: "#3b82f6", boxShadow: "0 0 0 3px rgba(59,130,246,0.12)" }
+                    : undefined
+                }
                 onClick={async () => onJumpToSearchResult(index)}
               >
-                <div>
-                  <strong>{`p.${result.page}`}</strong>
-                </div>
-                <div>{result.snippet}</div>
+                <span className="ann-page" style={{ fontWeight: 600 }}>{`p.${result.page}`}</span>
+                <div className="muted">{result.snippet}</div>
               </li>
             ))}
           </ul>
         </div>
       </details>
 
+      {/* Exports */}
       <details className="card collapsible" open>
-        <summary>Exports</summary>
+        <summary>
+          <span className="collapsible-arrow">›</span>
+          <h2 style={{ margin: 0 }}>Export</h2>
+        </summary>
         <div className="card-body">
           <div className="row">
-            <button id="exportJsonBtn" onClick={() => onExportJson()}>
+            <button id="exportJsonBtn" className="ghost-btn" onClick={() => onExportJson()}>
               Export JSON
             </button>
-            <button id="exportMarkdownBtn" onClick={() => onExportMarkdown()}>
+            <button id="exportMarkdownBtn" className="ghost-btn" onClick={() => onExportMarkdown()}>
               Export Markdown
             </button>
           </div>
         </div>
       </details>
 
+      {/* Action Timeline */}
       <details className="card collapsible" open>
         <summary>
-          <span>Action Timeline</span>
+          <span className="collapsible-arrow">›</span>
+          <h2 style={{ margin: 0 }}>Action Timeline</h2>
           <button
             id="refreshBtn"
             className="ghost-btn"
+            style={{ marginLeft: "auto", padding: "2px 8px", fontSize: "0.75rem" }}
             onClick={async (event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -334,7 +401,7 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
         <div className="card-body">
           <ul id="eventsList" className="list compact-list">
             {events.map((event) => (
-              <li key={event.id}>
+              <li key={event.id} style={{ cursor: "default" }}>
                 {buildEventLines(event).map((line, lineIndex) => (
                   <div key={`${event.id}:${lineIndex}`}>{line}</div>
                 ))}

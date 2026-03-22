@@ -36,13 +36,13 @@
     "react-dom": "^19.1.1"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^5.0.2",
+    "@eslint/js": "^9.23.0",
+    "@playwright/test": "^1.54.2",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
-    "@playwright/test": "^1.54.2",
     "@typescript-eslint/eslint-plugin": "^8.26.1",
     "@typescript-eslint/parser": "^8.26.1",
-    "@eslint/js": "^9.23.0",
+    "@vitejs/plugin-react": "^5.0.2",
     "eslint": "^9.22.0",
     "eslint-config-prettier": "^10.1.1",
     "globals": "^16.0.0",
@@ -50,6 +50,7 @@
     "prettier": "^3.5.3",
     "typescript": "^5.7.3",
     "vite": "^6.2.1",
+    "vite-plugin-pwa": "^1.2.0",
     "vitest": "^3.0.9"
   }
 }

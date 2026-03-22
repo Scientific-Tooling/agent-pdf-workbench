@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import { useState, type RefObject } from "react";
 
 import type { PdfDocumentLike } from "../app/app-types";
 
@@ -44,6 +44,8 @@ interface ReaderPanelProps {
 }
 
 export function ReaderPanel(props: ReaderPanelProps) {
+  const [searchExpanded, setSearchExpanded] = useState(false);
+
   const {
     pdfDoc,
     page,
@@ -200,63 +202,90 @@ export function ReaderPanel(props: ReaderPanelProps) {
         </div>
       </div>
 
-      {/* Search toolbar */}
-      <div className="search-toolbar">
-        <input
-          id="searchInput"
-          ref={searchInputRef}
-          placeholder="Search in document (press Enter)"
-          value={searchInputValue}
-          onChange={(event) => onSearchInputValueChange(event.target.value)}
-          onKeyDown={async (event) => {
-            if (event.key !== "Enter") {
-              return;
-            }
-            event.preventDefault();
-            const query = searchInputValue.trim();
-            if (!query) {
-              await onRunSearch("");
-              return;
-            }
-            if (searchQuery === query && searchResultsCount > 0) {
-              if (event.shiftKey) {
-                await onJumpToSearchResult(searchCursor - 1);
-              } else {
-                await onJumpToSearchResult(searchCursor + 1);
+      {/* Search area */}
+      {searchExpanded ? (
+        <div className="search-toolbar">
+          <input
+            id="searchInput"
+            ref={searchInputRef}
+            placeholder="Find…"
+            value={searchInputValue}
+            onChange={(event) => onSearchInputValueChange(event.target.value)}
+            onKeyDown={async (event) => {
+              if (event.key === "Escape") {
+                setSearchExpanded(false);
+                return;
               }
-              return;
-            }
-            await onRunSearch(query);
+              if (event.key !== "Enter") {
+                return;
+              }
+              event.preventDefault();
+              const query = searchInputValue.trim();
+              if (!query) {
+                await onRunSearch("");
+                return;
+              }
+              if (searchQuery === query && searchResultsCount > 0) {
+                if (event.shiftKey) {
+                  await onJumpToSearchResult(searchCursor - 1);
+                } else {
+                  await onJumpToSearchResult(searchCursor + 1);
+                }
+                return;
+              }
+              await onRunSearch(query);
+            }}
+          />
+          <button id="searchBtn" title="Search" onClick={async () => onRunSearch(searchInputValue)}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </button>
+          <button
+            id="searchPrevBtn"
+            className="ghost-btn icon-btn"
+            title="Previous match (Shift+Enter)"
+            onClick={async () => onJumpToSearchResult(searchCursor - 1)}
+          >
+            ‹
+          </button>
+          <button
+            id="searchNextBtn"
+            className="ghost-btn icon-btn"
+            title="Next match (Enter)"
+            onClick={async () => onJumpToSearchResult(searchCursor + 1)}
+          >
+            ›
+          </button>
+          {searchInfoText && (
+            <span id="searchInfo" className="search-info">
+              {searchInfoText}
+            </span>
+          )}
+          <button
+            className="ghost-btn icon-btn"
+            title="Close search (Esc)"
+            onClick={() => setSearchExpanded(false)}
+          >
+            ✕
+          </button>
+        </div>
+      ) : (
+        <button
+          className="search-toggle-btn"
+          title="Search"
+          onClick={() => {
+            setSearchExpanded(true);
+            setTimeout(() => searchInputRef.current?.focus(), 0);
           }}
-        />
-        <button id="searchBtn" title="Search" onClick={async () => onRunSearch(searchInputValue)}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="8"/>
             <line x1="21" y1="21" x2="16.65" y2="16.65"/>
           </svg>
         </button>
-        <button
-          id="searchPrevBtn"
-          className="ghost-btn icon-btn"
-          title="Previous match (Shift+Enter)"
-          onClick={async () => onJumpToSearchResult(searchCursor - 1)}
-        >
-          ‹
-        </button>
-        <button
-          id="searchNextBtn"
-          className="ghost-btn icon-btn"
-          title="Next match (Enter)"
-          onClick={async () => onJumpToSearchResult(searchCursor + 1)}
-        >
-          ›
-        </button>
-        {searchInfoText && (
-          <span id="searchInfo" className="search-info">
-            {searchInfoText}
-          </span>
-        )}
-      </div>
+      )}
 
       {/* PDF Stage */}
       <div id="pdfStage" ref={pdfStageRef} className="pdf-stage">

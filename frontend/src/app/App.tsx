@@ -22,14 +22,14 @@ import {
   MAX_ZOOM,
   MIN_ZOOM,
 } from "./app-types";
-import type { PendingSelection, PdfDocumentLike, PdfOutlineNode } from "./app-types";
+import type { PendingSelection, PdfDocumentLike, PdfOutlineNode, PdfViewportLike } from "./app-types";
 import { exportJson as exportJsonFile, exportMarkdown as exportMarkdownFile } from "../services/exporters";
 import { asAnnotation, asAnnotationRecord, asNote, asNoteRecord } from "../pdf/main-parsers";
 import { clamp, errorMessage, nowIso, parseLinkedIds, parseTags, uid } from "../utils/main-utils";
 import {
   applySearchHighlightsToCurrentPage as applySearchHighlightsToCurrentPageInDom,
 } from "../ui/list-renderers";
-import { readTextFromPdfItems, renderTextLayer, updateCanvasAndLayersSize } from "../pdf/pdf-layer";
+import { readTextFromPdfItems, updateCanvasAndLayersSize } from "../pdf/pdf-layer";
 import { getProgress, getRecentPapers, upsertProgress, upsertRecentPaper } from "../services/storage";
 import type {
   ActionEvent,
@@ -96,6 +96,13 @@ export function App() {
   const annotationLayerRef = useRef<HTMLDivElement | null>(null);
   const quickAnnotatorRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const isChangingPageRef = useRef(false);
+  const pageCacheRef = useRef<Map<number, {
+    bitmap: ImageBitmap;
+    textContent: unknown;
+    viewport: PdfViewportLike;
+    zoom: number;
+  }>>(new Map());
 
   const selectedAnnotation = useMemo(
     () => annotations.find((annotation) => annotation.id === selectedAnnotationId) ?? null,
@@ -235,6 +242,7 @@ export function App() {
     setStageLoadingLabel("Loading PDF...");
     hideQuickAnnotator();
     pageTextCacheRef.current.clear();
+    pageCacheRef.current.clear();
     clearViewerDom();
   }
 
@@ -373,35 +381,121 @@ export function App() {
     if (!activeDoc || !canvas || !textLayer || !annotationLayer) {
       return;
     }
-    await withStageLoading("Rendering page...", async () => {
-      const pdfPage = await activeDoc.getPage(pageNumber);
-      const viewport = pdfPage.getViewport({ scale: zoomRef.current });
+    const zoom = zoomRef.current;
+    const cached = pageCacheRef.current.get(pageNumber);
+    const cacheHit = cached !== undefined && Math.abs(cached.zoom - zoom) < 0.001;
+
+    let viewport!: PdfViewportLike;
+    let textContent!: { items: Array<Record<string, unknown>> };
+
+    if (cacheHit) {
+      viewport = cached!.viewport;
+      textContent = cached!.textContent as { items: Array<Record<string, unknown>> };
       updateCanvasAndLayersSize(canvas, textLayer, annotationLayer, viewport);
-
       const context = canvas.getContext("2d");
-      if (!context) {
-        throw new Error("Cannot initialize 2d canvas context");
-      }
-      await pdfPage.render({ canvasContext: context, viewport }).promise;
+      if (!context) throw new Error("Cannot initialize 2d canvas context");
+      context.drawImage(cached!.bitmap, 0, 0);
+    } else {
+      await withStageLoading("Rendering page...", async () => {
+        const pdfPage = await activeDoc.getPage(pageNumber);
+        const vp = pdfPage.getViewport({ scale: zoom });
+        updateCanvasAndLayersSize(canvas, textLayer, annotationLayer, vp);
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Cannot initialize 2d canvas context");
+        await pdfPage.render({ canvasContext: context, viewport: vp }).promise;
+        const tc = await pdfPage.getTextContent() as { items: Array<Record<string, unknown>> };
+        const bitmap = await createImageBitmap(canvas);
+        pageCacheRef.current.set(pageNumber, { bitmap, textContent: tc, viewport: vp, zoom });
+        viewport = vp;
+        textContent = tc;
+      });
+    }
 
-      const textContent = await pdfPage.getTextContent();
-      renderTextLayer(textLayer, viewport, textContent.items);
-      const pageText = readTextFromPdfItems(textContent.items);
-      pageTextCacheRef.current.set(pageNumber, pageText);
-
-      setPage(pageNumber);
-      pageRef.current = pageNumber;
-      setPageJumpInput(String(pageNumber));
-
-      const sid = sessionIdOverride ?? sessionRef.current?.id;
-      if (sid) {
-        persistReadingProgress(pageNumber, zoomRef.current, sid);
-      }
-      if (emitPageChange) {
-        await recordAction("page_change", { total_pages: activeDoc.numPages }, pageNumber, null, sid);
-      }
+    textLayer.innerHTML = "";
+    const pdfTextLayer = new pdfjsLib.TextLayer({
+      textContentSource: textContent,
+      container: textLayer,
+      viewport,
     });
+    await pdfTextLayer.render();
+    let textCursor = 0;
+    for (let i = 0; i < pdfTextLayer.textDivs.length; i++) {
+      const div = pdfTextLayer.textDivs[i];
+      const str = pdfTextLayer.textContentItemsStr[i] ?? "";
+      div.dataset.start = String(textCursor);
+      div.dataset.end = String(textCursor + str.length);
+      textCursor += str.length + 1;
+    }
+    const pageText = readTextFromPdfItems(textContent.items);
+    pageTextCacheRef.current.set(pageNumber, pageText);
+
+    setPage(pageNumber);
+    pageRef.current = pageNumber;
+    setPageJumpInput(String(pageNumber));
+
+    const sid = sessionIdOverride ?? sessionRef.current?.id;
+    if (sid) persistReadingProgress(pageNumber, zoom, sid);
+    if (emitPageChange) {
+      await recordAction("page_change", { total_pages: activeDoc.numPages }, pageNumber, null, sid);
+    }
+
+    prerenderPageToCache(pageNumber + 1).catch(() => {});
+    prerenderPageToCache(pageNumber - 1).catch(() => {});
   }
+
+  async function prerenderPageToCache(pageNumber: number): Promise<void> {
+    const doc = pdfDocRef.current;
+    if (!doc || pageNumber < 1 || pageNumber > doc.numPages) return;
+    const zoom = zoomRef.current;
+    const cached = pageCacheRef.current.get(pageNumber);
+    if (cached && Math.abs(cached.zoom - zoom) < 0.001) return;
+    const pdfPage = await doc.getPage(pageNumber);
+    const viewport = pdfPage.getViewport({ scale: zoom });
+    const offscreen = document.createElement("canvas");
+    offscreen.width = viewport.width;
+    offscreen.height = viewport.height;
+    const ctx = offscreen.getContext("2d");
+    if (!ctx) return;
+    await pdfPage.render({ canvasContext: ctx, viewport }).promise;
+    const bitmap = await createImageBitmap(offscreen);
+    const textContent = await pdfPage.getTextContent();
+    if (Math.abs(zoomRef.current - zoom) > 0.001) return; // zoom changed, discard
+    pageCacheRef.current.set(pageNumber, { bitmap, textContent, viewport, zoom });
+    if (!pageTextCacheRef.current.has(pageNumber)) {
+      pageTextCacheRef.current.set(pageNumber, readTextFromPdfItems(textContent.items));
+    }
+  }
+
+  const renderPageRef = useSyncedRef(renderPage);
+
+  useEffect(() => {
+    const stage = pdfStageRef.current;
+    if (!stage) return;
+
+    function handleWheel(event: WheelEvent) {
+      const s = pdfStageRef.current;
+      if (!s || isChangingPageRef.current) return;
+      const atBottom = s.scrollTop + s.clientHeight >= s.scrollHeight - 2;
+      const atTop = s.scrollTop <= 0;
+      const doc = pdfDocRef.current;
+      if (event.deltaY > 0 && atBottom && doc && pageRef.current < doc.numPages) {
+        isChangingPageRef.current = true;
+        renderPageRef.current(pageRef.current + 1, true)
+          .then(() => { if (pdfStageRef.current) pdfStageRef.current.scrollTop = 0; })
+          .catch(() => {})
+          .finally(() => { isChangingPageRef.current = false; });
+      } else if (event.deltaY < 0 && atTop && pageRef.current > 1) {
+        isChangingPageRef.current = true;
+        renderPageRef.current(pageRef.current - 1, true)
+          .then(() => { if (pdfStageRef.current) pdfStageRef.current.scrollTop = pdfStageRef.current.scrollHeight; })
+          .catch(() => {})
+          .finally(() => { isChangingPageRef.current = false; });
+      }
+    }
+
+    stage.addEventListener("wheel", handleWheel, { passive: true });
+    return () => stage.removeEventListener("wheel", handleWheel);
+  }, []);
 
   async function jumpToSearchResult(index: number, sourceResults?: SearchResult[]): Promise<void> {
     const activeResults = sourceResults ?? searchResults;
@@ -871,6 +965,7 @@ export function App() {
     if (Math.abs(normalized - zoomRef.current) < 0.001) {
       return;
     }
+    pageCacheRef.current.clear();
     setZoom(normalized);
     zoomRef.current = normalized;
     await recordAction("zoom_change", { zoom: normalized }, pageRef.current);

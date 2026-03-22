@@ -119,8 +119,7 @@ export function ControlPanel(props: ControlPanelProps) {
           {outline.map((item) => (
             <li key={`${item.level}-${item.page}-${item.title}`} style={{ marginLeft: `${item.level * 10}px` }}>
               <button
-                className="ghost-btn"
-                style={{ justifyContent: "flex-start", textAlign: "left", width: "100%" }}
+                className="ghost-btn outline-btn"
                 onClick={async () => {
                   try {
                     await onJumpToOutlinePage(item.page);

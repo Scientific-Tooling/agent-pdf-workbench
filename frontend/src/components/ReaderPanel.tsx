@@ -201,7 +201,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
       </div>
 
       {/* Search toolbar */}
-      <div className="toolbar search-toolbar">
+      <div className="search-toolbar">
         <input
           id="searchInput"
           ref={searchInputRef}
@@ -255,23 +255,25 @@ export function ReaderPanel(props: ReaderPanelProps) {
 
       {/* PDF Stage */}
       <div id="pdfStage" ref={pdfStageRef} className="pdf-stage">
-        <canvas id="pdfCanvas" ref={pdfCanvasRef} />
-        <div
-          id="textLayer"
-          ref={textLayerRef}
-          className="text-layer"
-          onCopy={async () => {
-            try {
-              await onTextLayerCopy();
-            } catch (error) {
-              onError(error, "Failed to record copy action");
-            }
-          }}
-          onMouseUp={() => {
-            onTextLayerMouseUp();
-          }}
-        />
-        <div id="annotationLayer" ref={annotationLayerRef} className="annotation-layer" />
+        <div className="pdf-document-container">
+          <canvas id="pdfCanvas" ref={pdfCanvasRef} />
+          <div
+            id="textLayer"
+            ref={textLayerRef}
+            className="text-layer"
+            onCopy={async () => {
+              try {
+                await onTextLayerCopy();
+              } catch (error) {
+                onError(error, "Failed to record copy action");
+              }
+            }}
+            onMouseUp={() => {
+              onTextLayerMouseUp();
+            }}
+          />
+          <div id="annotationLayer" ref={annotationLayerRef} className="annotation-layer" />
+        </div>
         <div id="stageLoading" className={`stage-loading ${loadingCount > 0 ? "" : "hidden"}`}>
           {stageLoadingLabel}
         </div>

@@ -284,12 +284,15 @@ export function getSelectionRectsAndQuote(
   if (rects.length === 0) {
     return null;
   }
+
+  const stageRect = pdfStage.getBoundingClientRect();
+
   return {
     rects,
     quote,
     anchor,
-    anchorX: rangeRect.left - layerRect.left + pdfStage.scrollLeft,
-    anchorY: rangeRect.top - layerRect.top + pdfStage.scrollTop,
+    anchorX: rangeRect.left - stageRect.left + pdfStage.scrollLeft,
+    anchorY: rangeRect.top - stageRect.top + pdfStage.scrollTop,
   };
 }
 

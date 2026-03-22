@@ -164,18 +164,14 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
             {sortedAnnotations.map((annotation) => (
               <li
                 key={annotation.id}
-                style={
-                  annotation.id === selectedAnnotationId
-                    ? { borderColor: "#3b82f6", boxShadow: "0 0 0 3px rgba(59,130,246,0.12)" }
-                    : undefined
-                }
+                className={annotation.id === selectedAnnotationId ? "selected" : undefined}
                 onClick={() => onSelectAnnotation(annotation.id)}
               >
                 <div className="row" style={{ gap: "6px" }}>
                   <span className={`ann-type ${annotation.type}`}>{annotation.type}</span>
                   <span className="ann-page">p.{annotation.page}</span>
                 </div>
-                <div style={{ fontStyle: "italic", color: "#475569", fontSize: "0.8rem" }}>
+                <div className="quote-text">
                   {annotation.quote || "(empty quote)"}
                 </div>
                 {annotation.comment && <div className="muted">{annotation.comment}</div>}
@@ -284,11 +280,7 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
             {sortedNotes.map((note) => (
               <li
                 key={note.id}
-                style={
-                  note.id === selectedNoteId
-                    ? { borderColor: "#3b82f6", boxShadow: "0 0 0 3px rgba(59,130,246,0.12)" }
-                    : undefined
-                }
+                className={note.id === selectedNoteId ? "selected" : undefined}
                 onClick={() => onSelectNote(note.id)}
               >
                 <div style={{ fontWeight: 600, fontSize: "0.84rem" }}>{note.title || "(untitled note)"}</div>
@@ -343,11 +335,7 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
             {searchResults.map((result, index) => (
               <li
                 key={`${result.page}:${result.matchIndex}:${index}`}
-                style={
-                  index === searchCursor
-                    ? { borderColor: "#3b82f6", boxShadow: "0 0 0 3px rgba(59,130,246,0.12)" }
-                    : undefined
-                }
+                className={index === searchCursor ? "selected" : undefined}
                 onClick={async () => onJumpToSearchResult(index)}
               >
                 <span className="ann-page" style={{ fontWeight: 600 }}>{`p.${result.page}`}</span>

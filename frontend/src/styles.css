@@ -365,7 +365,7 @@ button:not([class*="-btn"]):hover {
   padding: 10px 20px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 16px;
   z-index: 10;
   box-shadow: var(--shadow-sm);
@@ -663,6 +663,16 @@ button:not([class*="-btn"]):hover {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.inline-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#pageJumpInput {
+  width: 3.5rem;
 }
 
 .muted {

@@ -125,7 +125,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
         {/* Page jump */}
         <div className="row">
           <label className="inline-label">
-            p.
+            Page
             <input
               id="pageJumpInput"
               type="number"
@@ -229,8 +229,11 @@ export function ReaderPanel(props: ReaderPanelProps) {
             await onRunSearch(query);
           }}
         />
-        <button id="searchBtn" onClick={async () => onRunSearch(searchInputValue)}>
-          Search
+        <button id="searchBtn" title="Search" onClick={async () => onRunSearch(searchInputValue)}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
         </button>
         <button
           id="searchPrevBtn"
@@ -248,9 +251,11 @@ export function ReaderPanel(props: ReaderPanelProps) {
         >
           ›
         </button>
-        <span id="searchInfo" className="search-info">
-          {searchInfoText}
-        </span>
+        {searchInfoText && (
+          <span id="searchInfo" className="search-info">
+            {searchInfoText}
+          </span>
+        )}
       </div>
 
       {/* PDF Stage */}

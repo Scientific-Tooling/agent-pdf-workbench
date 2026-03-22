@@ -140,7 +140,7 @@ export function App() {
 
   const searchInfoText = useMemo(() => {
     if (!searchQuery) {
-      return "No search";
+      return "";
     }
     if (searchResults.length === 0) {
       return "0 matches";

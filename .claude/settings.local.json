@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(PYTHONPATH=src python3 -m unittest discover -s tests -p \"test_*.py\" -v 2>&1)",
+      "Bash(PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_*.py' -v 2>&1)",
+      "Bash(PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_*.py' -v)",
+      "Bash(git add:*)",
+      "Bash(git rm:*)",
+      "Bash(git commit:*)",
+      "Bash(npm run:*)",
+      "Bash(grep -r \"web\\\\|static\\\\|frontend\\\\|app\\\\.js\\\\|styles\\\\.css\" /mnt/c/Users/mingz/Codes/scientific-tooling/agent-pdf-workbench/src --include=*.py -l)",
+      "Bash(npm install:*)",
+      "Bash(npm ls:*)",
+      "Bash(wait)",
+      "Bash(ls /mnt/c/Users/mingz/Codes/scientific-tooling/agent-pdf-workbench/*.json)",
+      "Bash(npx vite:*)"
+    ]
+  }
+}

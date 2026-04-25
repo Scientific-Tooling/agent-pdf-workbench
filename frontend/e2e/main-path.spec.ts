@@ -60,10 +60,18 @@ test("reader main path: open -> search -> annotate -> note -> export", async ({
   await page.goto("/");
   await page.locator("#paperRef").fill("p_e2e_main_path");
   await page.locator("#pdfUri").fill(pdfPath);
+  const openPaperResponse = page.waitForResponse((response) => {
+    return response.url().includes("/api/open-paper") && response.request().method() === "POST";
+  });
   await page.locator("#openPaperBtn").click();
+  const openedSession = (await (await openPaperResponse).json()) as { id: string };
+  const sessionId = openedSession.id;
+
   await expect(page.locator("#statusText")).toContainText("session ready");
+  await expect(page.locator("#sessionInfo")).toHaveText(sessionId);
   await expect(page.locator("#textLayer span").first()).toBeVisible();
 
+  await page.locator("#searchToggleBtn").click();
   await page.locator("#searchInput").fill("attention");
   await page.locator("#searchBtn").click();
   await expect(page.locator("#searchInfo")).not.toContainText("0 matches");
@@ -87,28 +95,24 @@ test("reader main path: open -> search -> annotate -> note -> export", async ({
   });
   await page.locator("#highlightBtn").click();
   await expect(page.locator("#annotationList")).not.toContainText("No annotations yet");
-  await expect(page.locator("#selectedAnnotationInfo")).toContainText("ann_");
-
-  const selectedAnnotationText = await page.locator("#selectedAnnotationInfo").textContent();
-  const selectedAnnotationId = selectedAnnotationText?.replace("Selected annotation:", "").trim();
-  expect(selectedAnnotationId).toBeTruthy();
 
   await page.locator("#noteTitleInput").fill("E2E Main Note");
-  await page.locator("#noteLinkedIdsInput").fill(selectedAnnotationId ?? "");
-  await page.locator("#noteMarkdownInput").fill("This note is linked to the highlighted evidence.");
-  await page.locator("#saveNoteBtn").click();
-  await expect(page.locator("#notesList")).toContainText("E2E Main Note");
-
-  const sessionInfo = (await page.locator("#sessionInfo").textContent()) ?? "";
-  const sessionId = sessionInfo.replace("Session:", "").trim();
-  expect(sessionId.startsWith("ps_")).toBeTruthy();
-
   const annotationsResp = await request.get(
     `/api/annotations?session_id=${encodeURIComponent(sessionId)}&limit=100`,
   );
   expect(annotationsResp.ok()).toBeTruthy();
-  const annotationsJson = (await annotationsResp.json()) as { count: number };
+  const annotationsJson = (await annotationsResp.json()) as {
+    count: number;
+    annotations: Array<{ id: string }>;
+  };
   expect(annotationsJson.count).toBeGreaterThan(0);
+  const selectedAnnotationId = annotationsJson.annotations[0]?.id ?? "";
+  await page.locator("#noteLinkedIdsInput").fill(selectedAnnotationId);
+  await page.locator("#noteMarkdownInput").fill("This note is linked to the highlighted evidence.");
+  await page.locator("#saveNoteBtn").click();
+  await expect(page.locator("#notesList")).toContainText("E2E Main Note");
+
+  expect(sessionId.startsWith("ps_")).toBeTruthy();
 
   const notesResp = await request.get(`/api/notes?session_id=${encodeURIComponent(sessionId)}&limit=100`);
   expect(notesResp.ok()).toBeTruthy();
@@ -149,8 +153,8 @@ test("open failure rolls back newly created session", async ({ page }) => {
   await page.locator("#openPaperBtn").click();
 
   await rollbackClose;
-  await expect(page.locator("#sessionInfo")).toHaveText("Session: -");
-  await expect(page.locator("#pageInfo")).toHaveText("Page - / -");
+  await expect(page.locator("#sessionInfo")).toHaveText("—");
+  await expect(page.locator("#pageInfo")).toContainText("— / —");
 });
 
 test("closing a session resets active workspace state", async ({ page }) => {
@@ -165,6 +169,34 @@ test("closing a session resets active workspace state", async ({ page }) => {
 
   await page.locator("#closePaperBtn").click();
   await expect(page.locator("#statusText")).toContainText("session closed");
-  await expect(page.locator("#sessionInfo")).toHaveText("Session: -");
-  await expect(page.locator("#pageInfo")).toHaveText("Page - / -");
+  await expect(page.locator("#sessionInfo")).toHaveText("—");
+  await expect(page.locator("#pageInfo")).toContainText("— / —");
+});
+
+test("recent paper load reopens session directly", async ({ page }) => {
+  const pdfPath = ensureSamplePdf();
+
+  await page.goto("/");
+  await page.locator("#paperRef").fill("p_e2e_recent_resume");
+  await page.locator("#pdfUri").fill(pdfPath);
+  await page.locator("#openPaperBtn").click();
+  await expect(page.locator("#statusText")).toContainText("session ready");
+
+  const firstSessionId = ((await page.locator("#sessionInfo").textContent()) ?? "").trim();
+  expect(firstSessionId.startsWith("ps_")).toBeTruthy();
+
+  await page.locator("#closePaperBtn").click();
+  await expect(page.locator("#sessionInfo")).toHaveText("—");
+
+  const recentItem = page.locator("#recentList li").filter({ hasText: "p_e2e_recent_resume" }).first();
+  await expect(recentItem).toBeVisible();
+  await recentItem.getByRole("button", { name: "Load" }).click();
+
+  await expect(page.locator("#statusText")).toContainText("session ready");
+  const reopenedSessionId = ((await page.locator("#sessionInfo").textContent()) ?? "").trim();
+  expect(reopenedSessionId.startsWith("ps_")).toBeTruthy();
+  expect(reopenedSessionId).not.toBe(firstSessionId);
+
+  await expect(page.locator("#paperRef")).toHaveValue("p_e2e_recent_resume");
+  await expect(page.locator("#pdfUri")).toHaveValue(pdfPath);
 });

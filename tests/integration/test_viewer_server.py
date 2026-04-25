@@ -277,12 +277,72 @@ class ViewerServerHardeningTest(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(body.get("code"), "MISSING_FIELD")
 
+    def test_open_paper_rejects_invalid_field_types(self) -> None:
+        status, _, body = self._raw_request(
+            "POST",
+            f"{self._base}/api/open-paper",
+            {"paper_ref": 123, "pdf_uri": "/tmp/paper.pdf"},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(body.get("code"), "VALIDATION_ERROR")
+        self.assertIn("paper_ref must be a string", body.get("error", ""))
+
+    def test_open_paper_rejects_non_object_metadata(self) -> None:
+        status, _, body = self._raw_request(
+            "POST",
+            f"{self._base}/api/open-paper",
+            {"paper_ref": "p_meta", "pdf_uri": "/tmp/paper.pdf", "metadata": ["bad"]},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(body.get("code"), "VALIDATION_ERROR")
+        self.assertIn("metadata must be an object", body.get("error", ""))
+
+    def test_record_action_rejects_invalid_page_type_and_range(self) -> None:
+        open_status, _, opened = self._raw_request(
+            "POST",
+            f"{self._base}/api/open-paper",
+            {"paper_ref": "p_rec", "pdf_uri": "/tmp/paper.pdf"},
+        )
+        self.assertEqual(open_status, 201)
+        session_id = opened["id"]
+
+        status_type, _, body_type = self._raw_request(
+            "POST",
+            f"{self._base}/api/record-action",
+            {"session_id": session_id, "event_type": "page_change", "page": "1"},
+        )
+        self.assertEqual(status_type, 400)
+        self.assertEqual(body_type.get("code"), "VALIDATION_ERROR")
+        self.assertIn("page must be an integer", body_type.get("error", ""))
+
+        status_range, _, body_range = self._raw_request(
+            "POST",
+            f"{self._base}/api/record-action",
+            {"session_id": session_id, "event_type": "page_change", "page": 0},
+        )
+        self.assertEqual(status_range, 400)
+        self.assertEqual(body_range.get("code"), "VALIDATION_ERROR")
+        self.assertIn("page must be >= 1", body_range.get("error", ""))
+
     def test_pdf_uri_null_byte_rejected(self) -> None:
         from urllib.parse import quote
         uri = quote("/tmp/bad\x00file.pdf", safe="")
         status, _, body = self._raw_request("GET", f"{self._base}/api/pdf?uri={uri}")
         self.assertEqual(status, 400)
         self.assertIn("null byte", body.get("error", "").lower())
+
+    def test_pdf_not_found_uses_json_error_envelope(self) -> None:
+        uri = quote("/tmp/apw-this-file-should-not-exist.pdf", safe="")
+        status, _, body = self._raw_request("GET", f"{self._base}/api/pdf?uri={uri}")
+        self.assertEqual(status, 404)
+        self.assertEqual(body.get("code"), "NOT_FOUND")
+        self.assertIn("PDF not found", body.get("error", ""))
+
+    def test_unknown_api_route_returns_json_not_found(self) -> None:
+        status, _, body = self._raw_request("GET", f"{self._base}/api/not-a-route")
+        self.assertEqual(status, 404)
+        self.assertEqual(body.get("code"), "NOT_FOUND")
+        self.assertEqual(body.get("error"), "Not Found")
 
 
 if __name__ == "__main__":

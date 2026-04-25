@@ -49,6 +49,16 @@ import type {
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
+const PAGE_CACHE_LIMIT = 8;
+
+type PageCacheEntry = {
+  bitmap: ImageBitmap;
+  textContent: unknown;
+  viewport: PdfViewportLike;
+  zoom: number;
+  lastUsedAt: number;
+};
+
 export function App() {
   const [session, setSession] = useState<PaperSession | null>(null);
   const [pdfDoc, setPdfDoc] = useState<PdfDocumentLike | null>(null);
@@ -89,6 +99,7 @@ export function App() {
   const pdfDocRef = useSyncedRef<PdfDocumentLike | null>(pdfDoc);
   const pageRef = useSyncedRef<number>(page);
   const zoomRef = useSyncedRef<number>(zoom);
+  const eventsRef = useSyncedRef<ActionEvent[]>(events);
 
   const pdfStageRef = useRef<HTMLDivElement | null>(null);
   const pdfCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -97,12 +108,10 @@ export function App() {
   const quickAnnotatorRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const isChangingPageRef = useRef(false);
-  const pageCacheRef = useRef<Map<number, {
-    bitmap: ImageBitmap;
-    textContent: unknown;
-    viewport: PdfViewportLike;
-    zoom: number;
-  }>>(new Map());
+  const pageCacheRef = useRef<Map<number, PageCacheEntry>>(new Map());
+  const domainRefreshScheduledRef = useRef(false);
+  const domainRefreshPromiseRef = useRef<Promise<void> | null>(null);
+  const domainRefreshSessionRef = useRef<string | null>(null);
 
   const selectedAnnotation = useMemo(
     () => annotations.find((annotation) => annotation.id === selectedAnnotationId) ?? null,
@@ -212,6 +221,64 @@ export function App() {
     }
   }
 
+  function disposeBitmap(bitmap: ImageBitmap): void {
+    try {
+      bitmap.close();
+    } catch {
+      // Ignore close errors for runtime compatibility.
+    }
+  }
+
+  function clearPageCache(): void {
+    for (const entry of pageCacheRef.current.values()) {
+      disposeBitmap(entry.bitmap);
+    }
+    pageCacheRef.current.clear();
+  }
+
+  function setPageCacheEntry(
+    pageNumber: number,
+    entry: {
+      bitmap: ImageBitmap;
+      textContent: unknown;
+      viewport: PdfViewportLike;
+      zoom: number;
+    },
+  ): void {
+    const cache = pageCacheRef.current;
+    const existing = cache.get(pageNumber);
+    if (existing) {
+      disposeBitmap(existing.bitmap);
+    }
+
+    cache.set(pageNumber, {
+      ...entry,
+      lastUsedAt: Date.now(),
+    });
+
+    while (cache.size > PAGE_CACHE_LIMIT) {
+      let oldestKey: number | null = null;
+      let oldestUsedAt = Number.POSITIVE_INFINITY;
+
+      for (const [key, value] of cache.entries()) {
+        if (value.lastUsedAt < oldestUsedAt) {
+          oldestUsedAt = value.lastUsedAt;
+          oldestKey = key;
+        }
+      }
+
+      if (oldestKey === null) {
+        break;
+      }
+
+      const evicted = cache.get(oldestKey);
+      if (evicted) {
+        disposeBitmap(evicted.bitmap);
+      }
+      cache.delete(oldestKey);
+    }
+  }
+
   function resetWorkspaceState(): void {
     setSession(null);
     setPdfDoc(null);
@@ -242,7 +309,7 @@ export function App() {
     setStageLoadingLabel("Loading PDF...");
     hideQuickAnnotator();
     pageTextCacheRef.current.clear();
-    pageCacheRef.current.clear();
+    clearPageCache();
     clearViewerDom();
   }
 
@@ -266,15 +333,51 @@ export function App() {
     setRecentPapers(getRecentPapers());
   }
 
-  async function refreshEvents(sessionIdOverride?: string): Promise<void> {
-    const sid = sessionIdOverride ?? sessionRef.current?.id;
+  function upsertEvent(event: ActionEvent): void {
+    setEvents((prev) => {
+      const byId = new Map(prev.map((item) => [item.id, item]));
+      byId.set(event.id, event);
+      return Array.from(byId.values()).sort((a, b) => a.id - b.id);
+    });
+  }
+
+  function tagsEqual(left: string[], right: string[]): boolean {
+    if (left.length !== right.length) {
+      return false;
+    }
+    for (let i = 0; i < left.length; i += 1) {
+      if (left[i] !== right[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  async function refreshEvents(options: { sessionId?: string; incremental?: boolean } = {}): Promise<void> {
+    const sid = options.sessionId ?? sessionRef.current?.id;
     if (!sid) {
       return;
     }
+    const incremental = options.incremental ?? true;
+    const lastEventId = incremental ? eventsRef.current[eventsRef.current.length - 1]?.id : undefined;
+    const afterQuery = lastEventId !== undefined ? `&after_id=${encodeURIComponent(String(lastEventId))}` : "";
     const data = await apiGet<ListActionsResponse>(
-      `/api/list-actions?session_id=${encodeURIComponent(sid)}&limit=1000`,
+      `/api/list-actions?session_id=${encodeURIComponent(sid)}&limit=1000${afterQuery}`,
     );
-    setEvents(data.events);
+    if (!incremental) {
+      setEvents(data.events);
+      return;
+    }
+    if (data.events.length === 0) {
+      return;
+    }
+    setEvents((prev) => {
+      const byId = new Map(prev.map((item) => [item.id, item]));
+      for (const item of data.events) {
+        byId.set(item.id, item);
+      }
+      return Array.from(byId.values()).sort((a, b) => a.id - b.id);
+    });
   }
 
   async function refreshAnnotations(sessionIdOverride?: string): Promise<void> {
@@ -323,8 +426,38 @@ export function App() {
     });
   }
 
+  function startDomainRefreshLoop(): void {
+    if (domainRefreshPromiseRef.current) {
+      return;
+    }
+    domainRefreshPromiseRef.current = (async () => {
+      while (domainRefreshScheduledRef.current) {
+        domainRefreshScheduledRef.current = false;
+        const sid = domainRefreshSessionRef.current ?? sessionRef.current?.id;
+        if (!sid) {
+          continue;
+        }
+        await Promise.all([refreshAnnotations(sid), refreshNotes(sid)]);
+      }
+    })().finally(() => {
+      domainRefreshPromiseRef.current = null;
+      if (domainRefreshScheduledRef.current) {
+        startDomainRefreshLoop();
+      }
+    });
+  }
+
   async function refreshDomainState(sessionIdOverride?: string): Promise<void> {
-    await Promise.all([refreshAnnotations(sessionIdOverride), refreshNotes(sessionIdOverride)]);
+    const sid = sessionIdOverride ?? sessionRef.current?.id;
+    if (!sid) {
+      return;
+    }
+    domainRefreshSessionRef.current = sid;
+    domainRefreshScheduledRef.current = true;
+    startDomainRefreshLoop();
+    if (domainRefreshPromiseRef.current) {
+      await domainRefreshPromiseRef.current;
+    }
   }
 
   async function recordAction(
@@ -333,13 +466,13 @@ export function App() {
     eventPage: number | null = pageRef.current,
     selectionText: string | null = null,
     sessionIdOverride?: string,
-  ): Promise<void> {
+  ): Promise<ActionEvent | null> {
     const sid = sessionIdOverride ?? sessionRef.current?.id;
     if (!sid) {
-      return;
+      return null;
     }
     try {
-      await apiPost("/api/record-action", {
+      const event = await apiPost<ActionEvent>("/api/record-action", {
         session_id: sid,
         event_type: eventType,
         page: eventPage,
@@ -347,8 +480,11 @@ export function App() {
         payload,
         source: "viewer",
       });
+      upsertEvent(event);
+      return event;
     } catch (error) {
       setStatus(`record_action failed: ${errorMessage(error)}`);
+      return null;
     }
   }
 
@@ -389,6 +525,7 @@ export function App() {
     let textContent!: { items: Array<Record<string, unknown>> };
 
     if (cacheHit) {
+      cached!.lastUsedAt = Date.now();
       viewport = cached!.viewport;
       textContent = cached!.textContent as { items: Array<Record<string, unknown>> };
       updateCanvasAndLayersSize(canvas, textLayer, annotationLayer, viewport);
@@ -405,7 +542,7 @@ export function App() {
         await pdfPage.render({ canvasContext: context, viewport: vp }).promise;
         const tc = await pdfPage.getTextContent() as { items: Array<Record<string, unknown>> };
         const bitmap = await createImageBitmap(canvas);
-        pageCacheRef.current.set(pageNumber, { bitmap, textContent: tc, viewport: vp, zoom });
+        setPageCacheEntry(pageNumber, { bitmap, textContent: tc, viewport: vp, zoom });
         viewport = vp;
         textContent = tc;
       });
@@ -422,6 +559,7 @@ export function App() {
     for (let i = 0; i < pdfTextLayer.textDivs.length; i++) {
       const div = pdfTextLayer.textDivs[i];
       const str = pdfTextLayer.textContentItemsStr[i] ?? "";
+      div.dataset.content = str;
       div.dataset.start = String(textCursor);
       div.dataset.end = String(textCursor + str.length);
       textCursor += str.length + 1;
@@ -459,8 +597,11 @@ export function App() {
     await pdfPage.render({ canvasContext: ctx, viewport }).promise;
     const bitmap = await createImageBitmap(offscreen);
     const textContent = await pdfPage.getTextContent();
-    if (Math.abs(zoomRef.current - zoom) > 0.001) return; // zoom changed, discard
-    pageCacheRef.current.set(pageNumber, { bitmap, textContent, viewport, zoom });
+    if (Math.abs(zoomRef.current - zoom) > 0.001) {
+      disposeBitmap(bitmap);
+      return; // zoom changed, discard
+    }
+    setPageCacheEntry(pageNumber, { bitmap, textContent, viewport, zoom });
     if (!pageTextCacheRef.current.has(pageNumber)) {
       pageTextCacheRef.current.set(pageNumber, readTextFromPdfItems(textContent.items));
     }
@@ -652,7 +793,6 @@ export function App() {
         activeSession.id,
       );
     }
-    await Promise.all([refreshEvents(activeSession.id), refreshAnnotations(activeSession.id)]);
     hideQuickAnnotator();
     window.getSelection()?.removeAllRanges();
     setStatus(`Annotation ${type} saved.`);
@@ -663,10 +803,18 @@ export function App() {
     if (!selectedAnnotation || !sessionRef.current) {
       return;
     }
+    const nextComment = annotationCommentInput.trim();
+    const nextTags = parseTags(annotationTagsInput);
+    if (
+      selectedAnnotation.comment === nextComment &&
+      tagsEqual(selectedAnnotation.tags, nextTags)
+    ) {
+      return;
+    }
     const updated: Annotation = {
       ...selectedAnnotation,
-      comment: annotationCommentInput.trim(),
-      tags: parseTags(annotationTagsInput),
+      comment: nextComment,
+      tags: nextTags,
       updatedAt: nowIso(),
     };
     const savedRecord = await apiPost<AnnotationRecord>("/api/annotations", {
@@ -691,7 +839,6 @@ export function App() {
         sessionRef.current.id,
       );
     }
-    await Promise.all([refreshEvents(sessionRef.current.id), refreshAnnotations(sessionRef.current.id)]);
     showToast("Annotation metadata updated", "success", 1400);
   }
 
@@ -722,7 +869,6 @@ export function App() {
       selectedAnnotation.quote,
       sessionRef.current.id,
     );
-    await Promise.all([refreshEvents(sessionRef.current.id), refreshAnnotations(sessionRef.current.id)]);
     setStatus("Annotation deleted.");
     showToast("Annotation deleted", "success");
   }
@@ -748,7 +894,6 @@ export function App() {
     const saved = asNote(savedRecord.note) ?? note;
     upsertNote(saved);
     await recordAction("note_upsert", { note: saved }, pageRef.current, null, sessionRef.current.id);
-    await Promise.all([refreshEvents(sessionRef.current.id), refreshNotes(sessionRef.current.id)]);
     setStatus("Note saved.");
     showToast("Note saved", "success");
   }
@@ -763,7 +908,6 @@ export function App() {
     });
     deleteNote(selectedNote.id);
     await recordAction("note_delete", { note_id: selectedNote.id }, pageRef.current, null, sessionRef.current.id);
-    await Promise.all([refreshEvents(sessionRef.current.id), refreshNotes(sessionRef.current.id)]);
     setStatus("Note deleted.");
     showToast("Note deleted", "success");
   }
@@ -853,6 +997,7 @@ export function App() {
       setPdfDoc(doc);
       pdfDocRef.current = doc;
       pageTextCacheRef.current.clear();
+      clearPageCache();
       await buildOutline(doc);
       const normalizedPage = clamp(preferredPage, 1, doc.numPages);
       await renderPage(normalizedPage, true, sessionIdForInitialActions, doc);
@@ -872,29 +1017,27 @@ export function App() {
     }
   }
 
-  async function openPaper(): Promise<void> {
-    const ref = paperRef.trim();
-    const uri = pdfUri.trim();
-    if (!ref || !uri) {
-      setStatus("paper_ref and pdf_uri are required");
-      return;
-    }
+  async function openPaperWithInputs(
+    paperRefValue: string,
+    pdfUriValue: string,
+    options: { preferredPage?: number } = {},
+  ): Promise<void> {
     if (sessionRef.current) {
       await closeSession({ silent: true });
     }
 
     setStatus("opening session...");
     const openedSession = await apiPost<PaperSession>("/api/open-paper", {
-      paper_ref: ref,
-      pdf_uri: uri,
+      paper_ref: paperRefValue,
+      pdf_uri: pdfUriValue,
       agent_id: DEFAULT_AGENT_ID,
       user_id: DEFAULT_USER_ID,
     });
 
     setSession(openedSession);
     sessionRef.current = openedSession;
-    setPaperRef(ref);
-    setPdfUri(uri);
+    setPaperRef(paperRefValue);
+    setPdfUri(pdfUriValue);
     setSearchInputValue("");
     setSearchQuery("");
     setSearchResults([]);
@@ -905,15 +1048,18 @@ export function App() {
     setNotes([]);
     setEvents([]);
 
-    const progress = getProgress(ref);
+    const progress = getProgress(paperRefValue);
     const nextZoom = progress?.zoom ?? 1.35;
     setZoom(nextZoom);
     zoomRef.current = nextZoom;
 
     try {
-      const preferredPage = progress?.lastPage ?? 1;
-      await loadPdf(uri, preferredPage, openedSession.id);
-      await Promise.all([refreshEvents(openedSession.id), refreshDomainState(openedSession.id)]);
+      const preferredPage = options.preferredPage ?? progress?.lastPage ?? 1;
+      await loadPdf(pdfUriValue, preferredPage, openedSession.id);
+      await Promise.all([
+        refreshEvents({ sessionId: openedSession.id, incremental: false }),
+        refreshDomainState(openedSession.id),
+      ]);
       setRecentPapers(getRecentPapers());
       setStatus("session ready");
       showToast("Session opened", "success");
@@ -926,6 +1072,16 @@ export function App() {
       resetWorkspaceState();
       throw error;
     }
+  }
+
+  async function openPaper(): Promise<void> {
+    const ref = paperRef.trim();
+    const uri = pdfUri.trim();
+    if (!ref || !uri) {
+      setStatus("paper_ref and pdf_uri are required");
+      return;
+    }
+    await openPaperWithInputs(ref, uri);
   }
 
   async function goPrevPage(): Promise<void> {
@@ -965,7 +1121,7 @@ export function App() {
     if (Math.abs(normalized - zoomRef.current) < 0.001) {
       return;
     }
-    pageCacheRef.current.clear();
+    clearPageCache();
     setZoom(normalized);
     zoomRef.current = normalized;
     await recordAction("zoom_change", { zoom: normalized }, pageRef.current);
@@ -1024,13 +1180,19 @@ export function App() {
     onGoPrevPage: goPrevPage,
   });
 
+  useEffect(() => {
+    return () => {
+      clearPageCache();
+      pageTextCacheRef.current.clear();
+    };
+  }, []);
+
   async function handleTextLayerCopy(): Promise<void> {
     const selectedText = window.getSelection()?.toString().trim() ?? "";
     if (!selectedText) {
       return;
     }
     await recordAction("copy", { chars: selectedText.length }, pageRef.current, selectedText);
-    await refreshEvents();
   }
 
   function handleTextLayerMouseUp(): void {
@@ -1075,10 +1237,10 @@ export function App() {
           onOpenPaper={openPaper}
           onCloseSession={closeSession}
           onRefreshRecent={() => setRecentPapers(getRecentPapers())}
-          onLoadRecent={(recent) => {
-            setPaperRef(recent.paperRef);
-            setPdfUri(recent.pdfUri);
-            setStatus(`Loaded recent paper. Resume suggestion: page ${recent.lastPage}`);
+          onLoadRecent={async (recent) => {
+            await openPaperWithInputs(recent.paperRef, recent.pdfUri, {
+              preferredPage: recent.lastPage,
+            });
           }}
           onJumpToOutlinePage={async (targetPage) => {
             await renderPage(targetPage, true);

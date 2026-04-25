@@ -205,6 +205,17 @@ HTTP API:
 - `POST /api/notes` (`{session_id, note}`)
 - `POST /api/notes/delete` (`{session_id, note_id}`)
 
+Action event semantics:
+
+- Events are ordered by ascending `id`.
+- Rapid high-frequency viewer events are coalesced: for `source="viewer"`, consecutive
+  `page_change` or `zoom_change` events within 0.75s update the latest row instead of inserting
+  a new one.
+- When coalescing occurs, `POST /api/record-action` returns the updated existing event id
+  (the id is reused).
+- `after_id` in `list-actions` only returns rows with larger ids; callers should upsert events by
+  id and treat `record-action` response as authoritative for the latest coalesced value.
+
 Error responses always include `{"error": "...", "code": "..."}` with a machine-readable code
 (`MISSING_FIELD`, `VALIDATION_ERROR`, `FORBIDDEN`, `BAD_GATEWAY`).
 

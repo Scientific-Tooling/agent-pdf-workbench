@@ -49,6 +49,12 @@ _audit_logger = logging.getLogger("apw.audit")
 _AUDIT_TEXT_MAX = 0  # 0 = never log text content (redact fully)
 
 
+class _MissingFieldError(ValueError):
+    def __init__(self, field: str) -> None:
+        super().__init__(f"missing field: {field}")
+        self.field = field
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -129,6 +135,87 @@ def _validate_pdf_uri(uri: str) -> None:
         raise ValueError("PDF URI too long (max 4096 characters)")
     if "\x00" in uri:
         raise ValueError("PDF URI contains null byte")
+
+
+def _require_string(
+    payload: dict,
+    field: str,
+    *,
+    allow_empty: bool = False,
+) -> str:
+    if field not in payload:
+        raise _MissingFieldError(field)
+    value = payload[field]
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string")
+    if not allow_empty and not value.strip():
+        raise ValueError(f"{field} must be a non-empty string")
+    return value
+
+
+def _optional_string(
+    payload: dict,
+    field: str,
+    *,
+    default: str | None = None,
+    allow_none: bool = True,
+    allow_empty: bool = False,
+) -> str | None:
+    if field not in payload:
+        return default
+    value = payload[field]
+    if value is None and allow_none:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string")
+    if not allow_empty and not value.strip():
+        raise ValueError(f"{field} must be a non-empty string")
+    return value
+
+
+def _optional_int(
+    payload: dict,
+    field: str,
+    *,
+    minimum: int | None = None,
+    allow_none: bool = True,
+) -> int | None:
+    if field not in payload:
+        return None
+    value = payload[field]
+    if value is None and allow_none:
+        return None
+    if type(value) is not int:  # bool is intentionally rejected.
+        raise ValueError(f"{field} must be an integer")
+    if minimum is not None and value < minimum:
+        raise ValueError(f"{field} must be >= {minimum}")
+    return value
+
+
+def _optional_dict(
+    payload: dict,
+    field: str,
+    *,
+    default: dict | None = None,
+    allow_none: bool = True,
+) -> dict | None:
+    if field not in payload:
+        return default
+    value = payload[field]
+    if value is None and allow_none:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError(f"{field} must be an object")
+    return value
+
+
+def _require_dict(payload: dict, field: str) -> dict:
+    if field not in payload:
+        raise _MissingFieldError(field)
+    value = payload[field]
+    if not isinstance(value, dict):
+        raise ValueError(f"{field} must be an object")
+    return value
 
 
 def _check_web_assets() -> None:
@@ -259,6 +346,10 @@ def _create_handler(
                 self._serve_pdf(uri)
                 return
 
+            if path.startswith("/api/"):
+                _error_response(self, "Not Found", code="NOT_FOUND", status=HTTPStatus.NOT_FOUND)
+                return
+
             if path == "/":
                 self._serve_static("index.html")
                 return
@@ -280,22 +371,41 @@ def _create_handler(
                 _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
                 return
 
+            def _handle_post_validation_error(exc: ValueError) -> None:
+                if isinstance(exc, _MissingFieldError):
+                    _error_response(self, str(exc), code="MISSING_FIELD", status=HTTPStatus.BAD_REQUEST)
+                else:
+                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
+
             if path == "/api/open-paper":
                 try:
+                    paper_ref = _require_string(body, "paper_ref")
+                    pdf_uri = _require_string(body, "pdf_uri")
+                    _validate_pdf_uri(pdf_uri)
+                    agent_id = _optional_string(
+                        body,
+                        "agent_id",
+                        default="agent:unknown",
+                        allow_none=False,
+                    )
+                    user_id = _optional_string(
+                        body,
+                        "user_id",
+                        default="user:unknown",
+                        allow_none=False,
+                    )
+                    metadata = _optional_dict(body, "metadata", default=None, allow_none=True)
+                    if agent_id is None or user_id is None:
+                        raise ValueError("agent_id and user_id must be strings")
                     payload = service.open_paper(
-                        paper_ref=body["paper_ref"],
-                        pdf_uri=body["pdf_uri"],
-                        agent_id=body.get("agent_id", "agent:unknown"),
-                        user_id=body.get("user_id", "user:unknown"),
-                        metadata=body.get("metadata"),
+                        paper_ref=paper_ref,
+                        pdf_uri=pdf_uri,
+                        agent_id=agent_id,
+                        user_id=user_id,
+                        metadata=metadata,
                     )
-                except KeyError as exc:
-                    _error_response(
-                        self,
-                        f"missing field: {exc}",
-                        code="MISSING_FIELD",
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
+                except ValueError as exc:
+                    _handle_post_validation_error(exc)
                     return
                 _audit("open_session", session_id=payload["id"], paper_ref=payload["paper_ref"])
                 _json_response(self, payload, status=HTTPStatus.CREATED)
@@ -303,157 +413,99 @@ def _create_handler(
 
             if path == "/api/record-action":
                 try:
+                    session_id = _require_string(body, "session_id")
+                    event_type = _require_string(body, "event_type")
+                    page = _optional_int(body, "page", minimum=1, allow_none=True)
+                    selection_text = _optional_string(
+                        body,
+                        "selection_text",
+                        default=None,
+                        allow_none=True,
+                        allow_empty=True,
+                    )
+                    payload_obj = _optional_dict(body, "payload", default=None, allow_none=True)
+                    source = _optional_string(
+                        body,
+                        "source",
+                        default="viewer",
+                        allow_none=False,
+                    )
+                    if source is None:
+                        raise ValueError("source must be a string")
                     payload = service.record_action(
-                        session_id=body["session_id"],
-                        event_type=body["event_type"],
-                        page=body.get("page"),
-                        selection_text=body.get("selection_text"),
-                        payload=body.get("payload"),
-                        source=body.get("source", "viewer"),
+                        session_id=session_id,
+                        event_type=event_type,
+                        page=page,
+                        selection_text=selection_text,
+                        payload=payload_obj,
+                        source=source,
                     )
-                except KeyError as exc:
-                    _error_response(
-                        self,
-                        f"missing field: {exc}",
-                        code="MISSING_FIELD",
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
                 except ValueError as exc:
-                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
+                    _handle_post_validation_error(exc)
                     return
                 _json_response(self, payload, status=HTTPStatus.CREATED)
                 return
 
             if path == "/api/close-paper":
-                session_id = body.get("session_id")
-                if not session_id:
-                    _error_response(
-                        self,
-                        "missing field: session_id",
-                        code="MISSING_FIELD",
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
                 try:
+                    session_id = _require_string(body, "session_id")
                     payload = service.close_paper(session_id=session_id)
                 except ValueError as exc:
-                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
+                    _handle_post_validation_error(exc)
                     return
                 _audit("close_session", session_id=session_id)
                 _json_response(self, payload)
                 return
 
             if path == "/api/annotations":
-                session_id = body.get("session_id")
-                annotation = body.get("annotation")
-                if not session_id:
-                    _error_response(
-                        self,
-                        "missing field: session_id",
-                        code="MISSING_FIELD",
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
-                if not isinstance(annotation, dict):
-                    _error_response(
-                        self,
-                        "missing field: annotation",
-                        code="MISSING_FIELD",
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
                 try:
+                    session_id = _require_string(body, "session_id")
+                    annotation = _require_dict(body, "annotation")
                     payload = service.upsert_annotation(session_id=session_id, annotation=annotation)
                 except ValueError as exc:
-                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
+                    _handle_post_validation_error(exc)
                     return
                 _json_response(self, payload, status=HTTPStatus.CREATED)
                 return
 
             if path == "/api/annotations/delete":
-                session_id = body.get("session_id")
-                annotation_id = body.get("annotation_id")
-                if not session_id:
-                    _error_response(
-                        self,
-                        "missing field: session_id",
-                        code="MISSING_FIELD",
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
-                if not isinstance(annotation_id, str):
-                    _error_response(
-                        self,
-                        "missing field: annotation_id",
-                        code="MISSING_FIELD",
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
                 try:
+                    session_id = _require_string(body, "session_id")
+                    annotation_id = _require_string(body, "annotation_id")
                     payload = service.delete_annotation(session_id=session_id, annotation_id=annotation_id)
                 except ValueError as exc:
-                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
+                    _handle_post_validation_error(exc)
                     return
                 _audit("delete_annotation", session_id=session_id, annotation_id=annotation_id)
                 _json_response(self, payload)
                 return
 
             if path == "/api/notes":
-                session_id = body.get("session_id")
-                note = body.get("note")
-                if not session_id:
-                    _error_response(
-                        self,
-                        "missing field: session_id",
-                        code="MISSING_FIELD",
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
-                if not isinstance(note, dict):
-                    _error_response(
-                        self,
-                        "missing field: note",
-                        code="MISSING_FIELD",
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
                 try:
+                    session_id = _require_string(body, "session_id")
+                    note = _require_dict(body, "note")
                     payload = service.upsert_note(session_id=session_id, note=note)
                 except ValueError as exc:
-                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
+                    _handle_post_validation_error(exc)
                     return
                 _json_response(self, payload, status=HTTPStatus.CREATED)
                 return
 
             if path == "/api/notes/delete":
-                session_id = body.get("session_id")
-                note_id = body.get("note_id")
-                if not session_id:
-                    _error_response(
-                        self,
-                        "missing field: session_id",
-                        code="MISSING_FIELD",
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
-                if not isinstance(note_id, str):
-                    _error_response(
-                        self,
-                        "missing field: note_id",
-                        code="MISSING_FIELD",
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
                 try:
+                    session_id = _require_string(body, "session_id")
+                    note_id = _require_string(body, "note_id")
                     payload = service.delete_note(session_id=session_id, note_id=note_id)
                 except ValueError as exc:
-                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
+                    _handle_post_validation_error(exc)
                     return
                 _audit("delete_note", session_id=session_id, note_id=note_id)
                 _json_response(self, payload)
                 return
 
+            if path.startswith("/api/"):
+                _error_response(self, "Not Found", code="NOT_FOUND", status=HTTPStatus.NOT_FOUND)
+                return
             _text_response(self, "Not Found", HTTPStatus.NOT_FOUND)
 
         def log_message(self, fmt: str, *args) -> None:
@@ -528,7 +580,12 @@ def _create_handler(
                     )
                     return
                 if not file_path.exists() or not file_path.is_file():
-                    _text_response(self, f"PDF not found: {file_path}", HTTPStatus.NOT_FOUND)
+                    _error_response(
+                        self,
+                        f"PDF not found: {file_path}",
+                        code="NOT_FOUND",
+                        status=HTTPStatus.NOT_FOUND,
+                    )
                     return
                 content = file_path.read_bytes()
                 content_type = "application/pdf"

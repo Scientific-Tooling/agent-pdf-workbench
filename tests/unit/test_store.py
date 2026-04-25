@@ -102,6 +102,137 @@ class EventStoreTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "after_id must be >= 0"):
                 store.list_events(session_id="ps_0004", after_id=-1)
 
+    def test_append_event_coalesces_high_frequency_page_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "events.db"
+            store = EventStore(db_path)
+            store.open_session(
+                session_id="ps_0005",
+                paper_ref="p_000005",
+                pdf_uri="/tmp/source.pdf",
+                agent_id="agent:test",
+                user_id="user:test",
+            )
+
+            first = store.append_event(
+                session_id="ps_0005",
+                event_type="page_change",
+                page=1,
+                payload={"total_pages": 10},
+                source="viewer",
+            )
+            second = store.append_event(
+                session_id="ps_0005",
+                event_type="page_change",
+                page=2,
+                payload={"total_pages": 10},
+                source="viewer",
+            )
+
+            self.assertEqual(second.id, first.id)
+            self.assertEqual(second.page, 2)
+            events = store.list_events(session_id="ps_0005")
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0].page, 2)
+
+    def test_append_event_does_not_coalesce_outside_window(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "events.db"
+            store = EventStore(db_path)
+            store.open_session(
+                session_id="ps_0006",
+                paper_ref="p_000006",
+                pdf_uri="/tmp/source.pdf",
+                agent_id="agent:test",
+                user_id="user:test",
+            )
+
+            first = store.append_event(
+                session_id="ps_0006",
+                event_type="page_change",
+                page=1,
+                payload={"total_pages": 10},
+                source="viewer",
+            )
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    "UPDATE action_events SET created_at = ? WHERE id = ?",
+                    ("2000-01-01T00:00:00+00:00", first.id),
+                )
+
+            second = store.append_event(
+                session_id="ps_0006",
+                event_type="page_change",
+                page=2,
+                payload={"total_pages": 10},
+                source="viewer",
+            )
+            self.assertNotEqual(second.id, first.id)
+            self.assertEqual(len(store.list_events(session_id="ps_0006")), 2)
+
+    def test_append_event_does_not_coalesce_non_viewer_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "events.db"
+            store = EventStore(db_path)
+            store.open_session(
+                session_id="ps_0007",
+                paper_ref="p_000007",
+                pdf_uri="/tmp/source.pdf",
+                agent_id="agent:test",
+                user_id="user:test",
+            )
+
+            first = store.append_event(
+                session_id="ps_0007",
+                event_type="page_change",
+                page=1,
+                payload={"total_pages": 10},
+                source="agent",
+            )
+            second = store.append_event(
+                session_id="ps_0007",
+                event_type="page_change",
+                page=2,
+                payload={"total_pages": 10},
+                source="agent",
+            )
+
+            self.assertNotEqual(second.id, first.id)
+            self.assertEqual(len(store.list_events(session_id="ps_0007")), 2)
+
+    def test_append_event_coalesces_zoom_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "events.db"
+            store = EventStore(db_path)
+            store.open_session(
+                session_id="ps_0008",
+                paper_ref="p_000008",
+                pdf_uri="/tmp/source.pdf",
+                agent_id="agent:test",
+                user_id="user:test",
+            )
+
+            first = store.append_event(
+                session_id="ps_0008",
+                event_type="zoom_change",
+                page=3,
+                payload={"zoom": 1.0},
+                source="viewer",
+            )
+            second = store.append_event(
+                session_id="ps_0008",
+                event_type="zoom_change",
+                page=3,
+                payload={"zoom": 1.25},
+                source="viewer",
+            )
+
+            self.assertEqual(second.id, first.id)
+            self.assertEqual(second.payload["zoom"], 1.25)
+            events = store.list_events(session_id="ps_0008")
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0].payload["zoom"], 1.25)
+
     def test_annotation_and_note_crud(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             db_path = Path(tmp_dir) / "events.db"

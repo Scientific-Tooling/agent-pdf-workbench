@@ -12,7 +12,7 @@ interface ControlPanelProps {
   onOpenPaper: () => Promise<void>;
   onCloseSession: () => Promise<void>;
   onRefreshRecent: () => void;
-  onLoadRecent: (paper: RecentPaper) => void;
+  onLoadRecent: (paper: RecentPaper) => Promise<void>;
   onJumpToOutlinePage: (page: number) => Promise<void>;
   onError: (error: unknown, fallback: string) => void;
 }
@@ -82,11 +82,11 @@ export function ControlPanel(props: ControlPanelProps) {
         <div className="info-row">
           <div className="info-chip">
             <span className="info-chip-label">ID</span>
-            <span className="info-chip-value">{sessionId ?? "—"}</span>
+            <span id="sessionInfo" className="info-chip-value">{sessionId ?? "—"}</span>
           </div>
           <div className="info-chip">
             <span className="info-chip-label">Status</span>
-            <span className="info-chip-value">{status}</span>
+            <span id="statusText" className="info-chip-value">{status}</span>
           </div>
         </div>
       </section>
@@ -104,7 +104,16 @@ export function ControlPanel(props: ControlPanelProps) {
             <li key={`${recent.paperRef}:${recent.updatedAt}`}>
               <div style={{ fontWeight: 600 }}>{`${recent.paperRef}`}</div>
               <div className="muted">{`p.${recent.lastPage} · ${recent.pdfUri}`}</div>
-              <button className="ghost-btn" onClick={() => onLoadRecent(recent)}>
+              <button
+                className="ghost-btn"
+                onClick={async () => {
+                  try {
+                    await onLoadRecent(recent);
+                  } catch (error) {
+                    onError(error, "Failed to load recent paper");
+                  }
+                }}
+              >
                 Load
               </button>
             </li>

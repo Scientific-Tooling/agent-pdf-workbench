@@ -273,6 +273,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
         </div>
       ) : (
         <button
+          id="searchToggleBtn"
           className="search-toggle-btn"
           title="Search"
           onClick={() => {

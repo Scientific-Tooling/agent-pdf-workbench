@@ -9,6 +9,8 @@ from typing import Any
 
 DEFAULT_LIST_LIMIT = 100
 MAX_LIST_LIMIT = 1000
+EVENT_COALESCE_WINDOW_SECONDS = 0.75
+COALESCIBLE_EVENT_TYPES = frozenset({"page_change", "zoom_change"})
 
 # Increment this when adding a new migration entry to _MIGRATIONS.
 SCHEMA_VERSION = 1
@@ -271,19 +273,47 @@ class EventStore:
         now = _utc_now()
         payload_json = json.dumps(payload or {}, ensure_ascii=True)
         with self._connect() as conn:
-            cur = conn.execute(
+            latest_row = conn.execute(
                 """
-                INSERT INTO action_events (
-                    session_id, event_type, page, selection_text, payload_json, source, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                SELECT * FROM action_events
+                WHERE session_id = ?
+                ORDER BY id DESC
+                LIMIT 1
                 """,
-                (session_id, event_type, page, selection_text, payload_json, source, now),
-            )
-            event_id = int(cur.lastrowid)
-            row = conn.execute(
-                "SELECT * FROM action_events WHERE id = ?",
-                (event_id,),
+                (session_id,),
             ).fetchone()
+            if self._should_coalesce_with_latest_event(
+                latest_row=latest_row,
+                event_type=event_type,
+                source=source,
+                now=now,
+            ):
+                conn.execute(
+                    """
+                    UPDATE action_events
+                    SET page = ?, selection_text = ?, payload_json = ?, created_at = ?
+                    WHERE id = ?
+                    """,
+                    (page, selection_text, payload_json, now, latest_row["id"]),
+                )
+                row = conn.execute(
+                    "SELECT * FROM action_events WHERE id = ?",
+                    (latest_row["id"],),
+                ).fetchone()
+            else:
+                cur = conn.execute(
+                    """
+                    INSERT INTO action_events (
+                        session_id, event_type, page, selection_text, payload_json, source, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (session_id, event_type, page, selection_text, payload_json, source, now),
+                )
+                event_id = int(cur.lastrowid)
+                row = conn.execute(
+                    "SELECT * FROM action_events WHERE id = ?",
+                    (event_id,),
+                ).fetchone()
         if row is None:
             raise RuntimeError("Failed to append action event.")
         return self._event_from_row(row)
@@ -539,6 +569,41 @@ class EventStore:
             opened_at=row["opened_at"],
             closed_at=row["closed_at"],
         )
+
+    @staticmethod
+    def _parse_iso_datetime(value: str) -> datetime | None:
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _should_coalesce_with_latest_event(
+        *,
+        latest_row: sqlite3.Row | None,
+        event_type: str,
+        source: str,
+        now: str,
+    ) -> bool:
+        if (
+            latest_row is None
+            or source != "viewer"
+            or event_type not in COALESCIBLE_EVENT_TYPES
+            or latest_row["source"] != source
+            or latest_row["event_type"] != event_type
+        ):
+            return False
+
+        latest_created_at = EventStore._parse_iso_datetime(latest_row["created_at"])
+        current_created_at = EventStore._parse_iso_datetime(now)
+        if latest_created_at is None or current_created_at is None:
+            return False
+        if current_created_at < latest_created_at:
+            return False
+
+        return (
+            current_created_at - latest_created_at
+        ).total_seconds() <= EVENT_COALESCE_WINDOW_SECONDS
 
     @staticmethod
     def _event_from_row(row: sqlite3.Row) -> ActionEvent:

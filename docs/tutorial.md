@@ -101,6 +101,8 @@ PYTHONPATH=src python3 -m agent_pdf_workbench.dev_cli \
 ```
 
 You should see events sorted by ascending event `id`.
+For high-frequency viewer churn, note that `page_change`/`zoom_change` may be coalesced:
+`record-action` can update the latest matching row and return the same existing id.
 
 ### 3.4 Close session
 

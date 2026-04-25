@@ -260,7 +260,7 @@ export function applySearchHighlightsToCurrentPage(params: SearchHighlightParams
           Number.isFinite(start) &&
           Number.isFinite(end) &&
           activeResult.matchIndex >= start &&
-          activeResult.matchIndex <= end
+          activeResult.matchIndex < end
         ) {
           span.classList.add("current-hit");
           markedCurrent = true;

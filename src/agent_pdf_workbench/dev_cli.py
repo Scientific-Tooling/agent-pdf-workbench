@@ -180,20 +180,41 @@ def handle_diagnostics(args: argparse.Namespace) -> int:
     _check("node", node_path is not None, node_path or "not found")
     _check("npm", npm_path is not None, npm_path or "not found")
 
-    # Playwright browser
+    # Playwright browser and native browser dependencies
     playwright_ok = False
     playwright_detail = "not checked (npm not available)"
-    if npm_path:
+    if node_path and npm_path:
         try:
             result = subprocess.run(
-                ["npx", "playwright", "install", "--dry-run", "chromium"],
+                [
+                    "node",
+                    "-e",
+                    (
+                        "const { chromium } = require('@playwright/test');"
+                        "const t=setTimeout(()=>{console.error('chromium launch timed out'); process.exit(1);},15000);"
+                        "(async()=>{const b=await chromium.launch({headless:true, timeout:10000});"
+                        "await b.close(); clearTimeout(t);})()"
+                        ".catch((e)=>{console.error(e && e.message ? e.message : e); process.exit(1);});"
+                    ),
+                ],
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=30,
             )
-            # If the browser is already installed, the dry-run exits 0 with no action lines
             playwright_ok = result.returncode == 0
-            playwright_detail = "chromium available" if playwright_ok else "chromium not installed (run: npx playwright install chromium)"
+            if playwright_ok:
+                playwright_detail = "chromium launches successfully"
+            else:
+                detail = (result.stderr or result.stdout).strip().splitlines()
+                first_line = next(
+                    (line for line in detail if "error while loading shared libraries" in line),
+                    detail[0] if detail else "chromium launch failed",
+                )
+                playwright_detail = (
+                    f"{first_line} (run: npx playwright install --with-deps chromium)"
+                )
+        except subprocess.TimeoutExpired:
+            playwright_detail = "chromium launch check timed out (run: npx playwright install --with-deps chromium)"
         except Exception as exc:
             playwright_detail = f"check failed: {exc}"
     _check("playwright_chromium", playwright_ok, playwright_detail)

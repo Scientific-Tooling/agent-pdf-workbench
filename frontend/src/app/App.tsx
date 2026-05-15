@@ -31,6 +31,7 @@ import {
 } from "../ui/list-renderers";
 import { readTextFromPdfItems, updateCanvasAndLayersSize } from "../pdf/pdf-layer";
 import { getProgress, getRecentPapers, upsertProgress, upsertRecentPaper } from "../services/storage";
+import { useWorkspaceSelection } from "./useWorkspaceSelection";
 import type {
   ActionEvent,
   Annotation,
@@ -113,24 +114,17 @@ export function App() {
   const domainRefreshPromiseRef = useRef<Promise<void> | null>(null);
   const domainRefreshSessionRef = useRef<string | null>(null);
 
-  const selectedAnnotation = useMemo(
-    () => annotations.find((annotation) => annotation.id === selectedAnnotationId) ?? null,
-    [annotations, selectedAnnotationId],
-  );
-
-  const selectedNote = useMemo(
-    () => notes.find((note) => note.id === selectedNoteId) ?? null,
-    [notes, selectedNoteId],
-  );
-
-  const sortedAnnotations = useMemo(
-    () => annotations.slice().sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)),
-    [annotations],
-  );
-  const sortedNotes = useMemo(
-    () => notes.slice().sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)),
-    [notes],
-  );
+  const {
+    selectedAnnotation,
+    selectedNote,
+    sortedAnnotations,
+    sortedNotes,
+  } = useWorkspaceSelection({
+    annotations,
+    selectedAnnotationId,
+    notes,
+    selectedNoteId,
+  });
 
   useEffect(() => {
     if (!selectedAnnotation) {

@@ -44,7 +44,7 @@ echo "  ✓ Frontend assets built"
 # ── 6. Install Playwright browser (if not present) ────────────────────────────
 if command -v npx &>/dev/null; then
   echo "  Installing Playwright Chromium browser (required for E2E tests)..."
-  npx playwright install chromium --quiet 2>/dev/null || true
+  npx playwright install --with-deps chromium
   echo "  ✓ Playwright browser ready"
 fi
 

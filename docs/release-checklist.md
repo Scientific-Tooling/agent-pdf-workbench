@@ -23,7 +23,6 @@ This checklist covers the steps to cut a new release of agent-pdf-workbench.
    bash bootstrap.sh
    PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_*.py' -v
    npm run verify
-   npm run test:e2e
    ```
    All tests must pass.
 

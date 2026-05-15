@@ -32,13 +32,14 @@ npm run test:unit
 npm run test:e2e
 npm run test:python
 npm run check:frontend
-npm run verify
+npm run verify:without-e2e
+npm run verify              # includes Playwright E2E
 ```
 
 Playwright browser setup (first time):
 
 ```bash
-npx playwright install chromium
+npx playwright install --with-deps chromium
 ```
 
 For hot-reload development:
@@ -286,5 +287,5 @@ Run the API main-path e2e test:
 
 ```bash
 PYTHONPATH=src python3 -m unittest tests.test_viewer_server.ViewerServerApiE2ETest
-npm run test:e2e
+npm run verify
 ```

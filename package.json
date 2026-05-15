@@ -28,7 +28,8 @@
     "test:unit:watch": "vitest",
     "test:watch": "npm run test:unit:watch",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run check:all"
+    "verify:without-e2e": "npm run check:all",
+    "verify": "npm run check:all && npm run test:e2e"
   },
   "dependencies": {
     "pdfjs-dist": "^4.10.38",

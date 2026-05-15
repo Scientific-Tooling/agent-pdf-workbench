@@ -257,6 +257,8 @@ apw-viewer-server --port 8791 --db-path ~/.apw/events.db
 - If `--pdf-root` is set, ensure the PDF is inside that directory.
 - Check the PDF URI is an absolute path.
 - Remote PDFs require `--allow-remote-pdf` or `APW_ALLOW_REMOTE_PDF=1`.
+- PDFs larger than the configured limit return `PAYLOAD_TOO_LARGE`; increase
+  `--max-pdf-bytes` or `APW_MAX_PDF_BYTES` only if the machine has enough memory.
 
 ### Missing browser for E2E tests
 
@@ -266,8 +268,12 @@ Error: browserType.launch: Executable doesn't exist at …
 
 Run:
 ```bash
-npx playwright install chromium
+npx playwright install --with-deps chromium
 ```
+
+If Chromium exists but fails with a missing shared library such as `libnspr4.so`,
+run the same command again; the `--with-deps` flag installs browser system
+dependencies on supported Linux environments.
 
 ### Frontend assets missing (blank page)
 
@@ -299,7 +305,7 @@ version.  Upgrade the app (see [Upgrade](#upgrade)) or restore an older backup.
   without a manual page refresh.
 - **SQLite WAL checkpoint** does not run automatically on a schedule.  For very
   long running sessions with many events, run `apw-dev checkpoint` periodically.
-- **Large PDF files** are read entirely into memory before being served.  Very
-  large PDFs (>100 MB) may cause high memory usage.
+- **Large PDF files** are capped before being read into memory.  The default
+  limit is 100 MiB; larger files need an explicit `--max-pdf-bytes` override.
 - **Export JSON** is a point-in-time snapshot.  There is no import command —
   restore from a SQLite backup for full data recovery.

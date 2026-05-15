@@ -47,7 +47,7 @@ This roadmap defines the work needed to make the app production-ready for local 
 ## Phase 3: Test and Quality Gates
 
 - [x] Split tests into deterministic tiers (`unit`, `integration`, `e2e`) with clear ownership.
-- [x] Ensure `npm run verify` passes in a clean environment including browser prerequisites.
+- [x] Ensure `npm run verify` runs the full local gate including browser prerequisites.
 - [x] Add CI workflow that runs Python tests, frontend checks, and Playwright E2E.
 - [x] Add smoke test for packaged/built assets served from `src/agent_pdf_workbench/web`.
 - [x] Add regression tests for session close semantics and state reset in UI.

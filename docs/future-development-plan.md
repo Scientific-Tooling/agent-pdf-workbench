@@ -19,7 +19,7 @@ This document defines the next development plan after the local production-readi
 
 ## Success Criteria (End of Plan)
 
-- `npm run verify` and `npm run test:e2e` are stable and deterministic in local and CI environments.
+- `npm run verify` is stable and deterministic in local and CI environments.
 - API input validation is strict for all endpoints, with consistent JSON error envelopes.
 - Large-session usage (1000+ events, 200+ annotations, 50+ notes) remains responsive without unbounded memory growth.
 - MCP surface includes first-class annotation and note workflows, not only session and event operations.
@@ -30,7 +30,7 @@ This document defines the next development plan after the local production-readi
 ### A1. Rebuild E2E as a Reliable Gate
 
 - Align Playwright selectors with current React UI structure.
-- Add explicit browser bootstrap (`npx playwright install chromium`) to setup docs and CI guard rails.
+- Add explicit browser bootstrap (`npx playwright install --with-deps chromium`) to setup docs and CI guard rails.
 - Add one smoke test that validates the app shell and one full-flow test for open/search/annotate/note/export/close.
 
 Acceptance criteria:
@@ -165,4 +165,3 @@ Acceptance criteria:
 2. Execute Phase B in parallel tracks (performance + UX + tests) where ownership allows.
 3. Start Phase C only after Phase B acceptance criteria are met.
 4. Use Phase D to make an explicit strategic choice rather than mixing tracks.
-

@@ -26,4 +26,4 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-agent_pdf_workbench = ["web/*.html", "web/*.js", "web/*.css"]
+agent_pdf_workbench = ["web/*"]

@@ -32,6 +32,10 @@ WEB_DIR = Path(__file__).with_name("web")
 # Maximum POST body size (1 MiB). Protects against runaway payloads.
 _MAX_REQUEST_BODY = 1 * 1024 * 1024
 
+# Maximum PDF response size (100 MiB). The local server currently buffers PDF
+# bytes before handing them to PDF.js, so fail clearly instead of exhausting RAM.
+_DEFAULT_MAX_PDF_BYTES = 100 * 1024 * 1024
+
 # Security headers added to every response for safer local browser behaviour.
 _SECURITY_HEADERS = [
     ("X-Content-Type-Options", "nosniff"),
@@ -137,6 +141,21 @@ def _validate_pdf_uri(uri: str) -> None:
         raise ValueError("PDF URI contains null byte")
 
 
+def _read_with_limit(stream, max_bytes: int) -> bytes:
+    """Read a stream up to max_bytes, raising ValueError if it is exceeded."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = stream.read(min(64 * 1024, max_bytes + 1 - total))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > max_bytes:
+            raise ValueError(f"PDF too large: exceeds {max_bytes} bytes")
+    return b"".join(chunks)
+
+
 def _require_string(
     payload: dict,
     field: str,
@@ -236,6 +255,8 @@ def _validate_config(args: argparse.Namespace) -> None:
         raise SystemExit(f"Invalid --port {args.port}: must be 1–65535.")
     if args.pdf_root is not None and not args.pdf_root.exists():
         raise SystemExit(f"--pdf-root does not exist: {args.pdf_root}")
+    if args.max_pdf_bytes < 1:
+        raise SystemExit(f"Invalid --max-pdf-bytes {args.max_pdf_bytes}: must be >= 1.")
 
 
 def _create_handler(
@@ -243,6 +264,7 @@ def _create_handler(
     *,
     allow_remote_pdf: bool = False,
     pdf_root: Path | None = None,
+    max_pdf_bytes: int = _DEFAULT_MAX_PDF_BYTES,
 ):
     web_root = WEB_DIR.resolve()
     resolved_pdf_root = pdf_root.resolve() if pdf_root is not None else None
@@ -262,6 +284,7 @@ def _create_handler(
                         "version": _APP_VERSION,
                         "schema_version": SCHEMA_VERSION,
                         "web_assets_present": (WEB_DIR / "index.html").is_file(),
+                        "max_pdf_bytes": max_pdf_bytes,
                     },
                 )
                 return
@@ -547,7 +570,16 @@ def _create_handler(
                     return
                 try:
                     with urlopen(uri, timeout=15) as resp:  # noqa: S310 - intended for configurable viewer source.
-                        content = resp.read()
+                        length_raw = resp.headers.get("Content-Length")
+                        if length_raw is not None and int(length_raw) > max_pdf_bytes:
+                            _error_response(
+                                self,
+                                f"PDF too large: {length_raw} bytes (max {max_pdf_bytes})",
+                                code="PAYLOAD_TOO_LARGE",
+                                status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                            )
+                            return
+                        content = _read_with_limit(resp, max_pdf_bytes)
                         content_type = resp.headers.get_content_type() or "application/pdf"
                 except HTTPError as exc:
                     _error_response(
@@ -555,6 +587,14 @@ def _create_handler(
                         f"remote PDF fetch failed: upstream HTTP {exc.code}",
                         code="BAD_GATEWAY",
                         status=HTTPStatus.BAD_GATEWAY,
+                    )
+                    return
+                except ValueError as exc:
+                    _error_response(
+                        self,
+                        str(exc),
+                        code="PAYLOAD_TOO_LARGE",
+                        status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
                     )
                     return
                 except (URLError, socket.timeout, TimeoutError, OSError) as exc:
@@ -587,7 +627,26 @@ def _create_handler(
                         status=HTTPStatus.NOT_FOUND,
                     )
                     return
-                content = file_path.read_bytes()
+                file_size = file_path.stat().st_size
+                if file_size > max_pdf_bytes:
+                    _error_response(
+                        self,
+                        f"PDF too large: {file_size} bytes (max {max_pdf_bytes})",
+                        code="PAYLOAD_TOO_LARGE",
+                        status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    )
+                    return
+                try:
+                    with file_path.open("rb") as pdf_file:
+                        content = _read_with_limit(pdf_file, max_pdf_bytes)
+                except ValueError as exc:
+                    _error_response(
+                        self,
+                        str(exc),
+                        code="PAYLOAD_TOO_LARGE",
+                        status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    )
+                    return
                 content_type = "application/pdf"
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", content_type)
@@ -630,6 +689,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path(os.environ["APW_PDF_ROOT"]).expanduser() if "APW_PDF_ROOT" in os.environ else None,
         help="Optional root directory for local PDF files. When set, local PDF paths outside this root are blocked.",
     )
+    parser.add_argument(
+        "--max-pdf-bytes",
+        type=int,
+        default=int(os.environ.get("APW_MAX_PDF_BYTES", str(_DEFAULT_MAX_PDF_BYTES))),
+        help="Maximum PDF bytes served from local or remote sources (default: 104857600).",
+    )
     return parser
 
 
@@ -657,7 +722,12 @@ def main() -> int:
     service = AgentPdfWorkbenchService(db_path=args.db_path)
     server = ThreadingHTTPServer(
         (args.host, args.port),
-        _create_handler(service, allow_remote_pdf=args.allow_remote_pdf, pdf_root=args.pdf_root),
+        _create_handler(
+            service,
+            allow_remote_pdf=args.allow_remote_pdf,
+            pdf_root=args.pdf_root,
+            max_pdf_bytes=args.max_pdf_bytes,
+        ),
     )
 
     def _shutdown(signum: int, frame: object) -> None:

@@ -92,6 +92,7 @@ Build output served by Python:
 - `src/agent_pdf_workbench/web/index.html`
 - `src/agent_pdf_workbench/web/app.js`
 - `src/agent_pdf_workbench/web/styles.css`
+- `src/agent_pdf_workbench/web/*` support assets (PDF.js worker, PWA manifest, icon, service worker)
 
 Commands:
 
@@ -103,13 +104,14 @@ npm run test:python:unit        # unit tests only
 npm run test:python:integration # integration tests only
 npm run test:e2e
 npm run check:frontend
-npm run verify
+npm run verify:without-e2e
+npm run verify              # includes Playwright E2E
 ```
 
 Playwright browser setup (first time only):
 
 ```bash
-npx playwright install chromium
+npx playwright install --with-deps chromium
 ```
 
 For local frontend dev with hot reload:
@@ -160,6 +162,7 @@ Security defaults:
 - server binds to `127.0.0.1` (non-local bind prints a warning)
 - remote PDF fetch is disabled by default; enable explicitly with `--allow-remote-pdf` or `APW_ALLOW_REMOTE_PDF=1`
 - constrain local PDF access with `--pdf-root /path/to/pdfs` (recommended; or `APW_PDF_ROOT`)
+- PDF responses are capped at 100 MiB by default; override with `--max-pdf-bytes` or `APW_MAX_PDF_BYTES`
 - all responses include security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Cache-Control`)
 - POST body limit: 1 MiB
 
@@ -217,7 +220,7 @@ Action event semantics:
   id and treat `record-action` response as authoritative for the latest coalesced value.
 
 Error responses always include `{"error": "...", "code": "..."}` with a machine-readable code
-(`MISSING_FIELD`, `VALIDATION_ERROR`, `FORBIDDEN`, `BAD_GATEWAY`).
+(`MISSING_FIELD`, `VALIDATION_ERROR`, `FORBIDDEN`, `PAYLOAD_TOO_LARGE`, `BAD_GATEWAY`).
 
 E2E main-path test:
 

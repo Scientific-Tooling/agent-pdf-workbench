@@ -30,6 +30,7 @@ It does not apply to any internet-facing or multi-user deployment.
 | Malicious web page reading the viewer API via cross-origin request | Server binds to `127.0.0.1` only; browsers enforce same-origin policy for cross-origin requests to `127.0.0.1` |
 | Path traversal in PDF URI (`../../etc/passwd`) | `Path.resolve()` normalises the path; `_is_within_directory()` enforces `--pdf-root` boundary when set; `resolve()` makes symlink attacks visible |
 | Oversized POST payloads (memory exhaustion) | `Content-Length` checked against 1 MiB limit before reading body |
+| Oversized PDF responses (memory exhaustion) | PDF bytes are capped at 100 MiB by default; use `--max-pdf-bytes` or `APW_MAX_PDF_BYTES` to tune |
 | MIME sniffing attacks on served files | `X-Content-Type-Options: nosniff` header on all responses |
 | Clickjacking via iframe embedding | `X-Frame-Options: SAMEORIGIN` header on all responses |
 | Browser caching sensitive session data | `Cache-Control: no-store` header on all responses |
@@ -62,6 +63,7 @@ apw-viewer-server \
   Without it, the server will serve any local file path the OS user can read.
 - **Never use `--host 0.0.0.0`** unless you understand the consequences.
 - **Do not enable `--allow-remote-pdf`** unless you trust the PDF source URLs.
+- **Keep `--max-pdf-bytes` conservative** unless you know your workstation can handle larger documents.
 
 ---
 

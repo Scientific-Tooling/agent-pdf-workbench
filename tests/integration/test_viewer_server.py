@@ -338,6 +338,30 @@ class ViewerServerHardeningTest(unittest.TestCase):
         self.assertEqual(body.get("code"), "NOT_FOUND")
         self.assertIn("PDF not found", body.get("error", ""))
 
+    def test_oversized_local_pdf_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pdf_path = Path(tmp_dir) / "large.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4\n0123456789")
+
+            service = AgentPdfWorkbenchService(db_path=Path(tmp_dir) / "events.db")
+            handler_cls = _create_handler(service, max_pdf_bytes=8)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+            host, port = server.server_address
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://{host}:{port}"
+
+            try:
+                uri = quote(str(pdf_path), safe="")
+                status, _, body = self._raw_request("GET", f"{base}/api/pdf?uri={uri}")
+                self.assertEqual(status, 413)
+                self.assertEqual(body.get("code"), "PAYLOAD_TOO_LARGE")
+                self.assertIn("PDF too large", body.get("error", ""))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
     def test_unknown_api_route_returns_json_not_found(self) -> None:
         status, _, body = self._raw_request("GET", f"{self._base}/api/not-a-route")
         self.assertEqual(status, 404)

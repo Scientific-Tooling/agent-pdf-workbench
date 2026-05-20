@@ -83,6 +83,15 @@ def _add_security_headers(handler: BaseHTTPRequestHandler) -> None:
         handler.send_header(name, value)
 
 
+def _write_response_body(handler: BaseHTTPRequestHandler, body: bytes) -> None:
+    try:
+        handler.wfile.write(body)
+    except (BrokenPipeError, ConnectionResetError):
+        # Browsers may cancel static/PDF requests during navigation or E2E
+        # teardown. Treat that as a normal disconnect, not a server error.
+        return
+
+
 def _json_response(handler: BaseHTTPRequestHandler, payload: dict, status: int = 200) -> None:
     body = json.dumps(payload, ensure_ascii=True).encode("utf-8")
     handler.send_response(status)
@@ -90,7 +99,7 @@ def _json_response(handler: BaseHTTPRequestHandler, payload: dict, status: int =
     handler.send_header("Content-Length", str(len(body)))
     _add_security_headers(handler)
     handler.end_headers()
-    handler.wfile.write(body)
+    _write_response_body(handler, body)
 
 
 def _error_response(
@@ -108,6 +117,16 @@ def _error_response(
     _json_response(handler, payload, status=status)
 
 
+def _validation_details(message: str) -> dict:
+    field = message.split(" must be ", 1)[0]
+    field = field.split(" is required", 1)[0]
+    field = field.split(" contains ", 1)[0]
+    field = field.split(" too ", 1)[0]
+    if field and " " not in field:
+        return {"field": field}
+    return {}
+
+
 def _text_response(handler: BaseHTTPRequestHandler, message: str, status: int) -> None:
     body = message.encode("utf-8")
     handler.send_response(status)
@@ -115,7 +134,7 @@ def _text_response(handler: BaseHTTPRequestHandler, message: str, status: int) -
     handler.send_header("Content-Length", str(len(body)))
     _add_security_headers(handler)
     handler.end_headers()
-    handler.wfile.write(body)
+    _write_response_body(handler, body)
 
 
 def _is_within_directory(path: Path, root: Path) -> bool:
@@ -322,9 +341,11 @@ def _create_handler(
                     )
                     return
                 limit_raw = query.get("limit", [1000])[0]
+                offset_raw = query.get("offset", [0])[0]
                 try:
                     limit = int(limit_raw) if limit_raw is not None else 1000
-                    payload = service.list_annotations(session_id=session_id, limit=limit)
+                    offset = int(offset_raw) if offset_raw is not None else 0
+                    payload = service.list_annotations(session_id=session_id, limit=limit, offset=offset)
                 except ValueError as exc:
                     _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
                     return
@@ -342,9 +363,11 @@ def _create_handler(
                     )
                     return
                 limit_raw = query.get("limit", [1000])[0]
+                offset_raw = query.get("offset", [0])[0]
                 try:
                     limit = int(limit_raw) if limit_raw is not None else 1000
-                    payload = service.list_notes(session_id=session_id, limit=limit)
+                    offset = int(offset_raw) if offset_raw is not None else 0
+                    payload = service.list_notes(session_id=session_id, limit=limit, offset=offset)
                 except ValueError as exc:
                     _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
                     return
@@ -396,9 +419,21 @@ def _create_handler(
 
             def _handle_post_validation_error(exc: ValueError) -> None:
                 if isinstance(exc, _MissingFieldError):
-                    _error_response(self, str(exc), code="MISSING_FIELD", status=HTTPStatus.BAD_REQUEST)
+                    _error_response(
+                        self,
+                        str(exc),
+                        code="MISSING_FIELD",
+                        status=HTTPStatus.BAD_REQUEST,
+                        details={"field": exc.field},
+                    )
                 else:
-                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
+                    _error_response(
+                        self,
+                        str(exc),
+                        code="VALIDATION_ERROR",
+                        status=HTTPStatus.BAD_REQUEST,
+                        details=_validation_details(str(exc)),
+                    )
 
             if path == "/api/open-paper":
                 try:
@@ -653,7 +688,7 @@ def _create_handler(
             self.send_header("Content-Length", str(len(content)))
             _add_security_headers(self)
             self.end_headers()
-            self.wfile.write(content)
+            _write_response_body(self, content)
 
         def _serve_static(self, relative_name: str) -> None:
             target = (web_root / relative_name).resolve()
@@ -667,7 +702,7 @@ def _create_handler(
             self.send_header("Content-Length", str(len(data)))
             _add_security_headers(self)
             self.end_headers()
-            self.wfile.write(data)
+            _write_response_body(self, data)
 
     return ViewerRequestHandler
 

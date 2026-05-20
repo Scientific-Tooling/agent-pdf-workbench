@@ -61,6 +61,41 @@ def build_server(db_path: Path):
         """Close an active paper session."""
         return service.close_paper(session_id=session_id)
 
+    @mcp.tool()
+    def upsert_annotation(session_id: str, annotation: dict) -> dict:
+        """Create or update an annotation in a paper session."""
+        return service.upsert_annotation(session_id=session_id, annotation=annotation)
+
+    @mcp.tool()
+    def list_annotations(session_id: str, limit: int = 100, offset: int = 0) -> dict:
+        """List annotations for one paper session."""
+        return service.list_annotations(session_id=session_id, limit=limit, offset=offset)
+
+    @mcp.tool()
+    def delete_annotation(session_id: str, annotation_id: str) -> dict:
+        """Delete an annotation by id. Missing annotations return deleted=false."""
+        return service.delete_annotation(session_id=session_id, annotation_id=annotation_id)
+
+    @mcp.tool()
+    def upsert_note(session_id: str, note: dict) -> dict:
+        """Create or update a note in a paper session."""
+        return service.upsert_note(session_id=session_id, note=note)
+
+    @mcp.tool()
+    def list_notes(session_id: str, limit: int = 100, offset: int = 0) -> dict:
+        """List notes for one paper session."""
+        return service.list_notes(session_id=session_id, limit=limit, offset=offset)
+
+    @mcp.tool()
+    def delete_note(session_id: str, note_id: str) -> dict:
+        """Delete a note by id. Missing notes return deleted=false."""
+        return service.delete_note(session_id=session_id, note_id=note_id)
+
+    @mcp.tool()
+    def export_workspace() -> dict:
+        """Export all sessions, events, annotations, and notes."""
+        return service.export_workspace()
+
     return mcp
 
 

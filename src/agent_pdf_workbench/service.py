@@ -52,10 +52,22 @@ class AgentPdfWorkbenchService:
 
     def list_actions(self, *, session_id: str, after_id: int | None = None, limit: int = 100) -> dict:
         events = self._store.list_events(session_id=session_id, after_id=after_id, limit=limit)
+        has_more = False
+        next_after_id = events[-1].id if events else None
+        if next_after_id is not None and len(events) == limit:
+            has_more = bool(
+                self._store.list_events(
+                    session_id=session_id,
+                    after_id=next_after_id,
+                    limit=1,
+                )
+            )
         return {
             "session_id": session_id,
             "count": len(events),
             "events": [asdict(event) for event in events],
+            "has_more": has_more,
+            "next_after_id": next_after_id if has_more else None,
         }
 
     def close_paper(self, *, session_id: str) -> dict:
@@ -66,12 +78,25 @@ class AgentPdfWorkbenchService:
         record = self._store.upsert_annotation(session_id=session_id, annotation=annotation)
         return asdict(record)
 
-    def list_annotations(self, *, session_id: str, limit: int = 100) -> dict:
-        records = self._store.list_annotations(session_id=session_id, limit=limit)
+    def list_annotations(self, *, session_id: str, limit: int = 100, offset: int = 0) -> dict:
+        records = self._store.list_annotations(session_id=session_id, limit=limit, offset=offset)
+        has_more = False
+        next_offset = offset + len(records)
+        if len(records) == limit:
+            has_more = bool(
+                self._store.list_annotations(
+                    session_id=session_id,
+                    limit=1,
+                    offset=next_offset,
+                )
+            )
         return {
             "session_id": session_id,
             "count": len(records),
             "annotations": [asdict(record) for record in records],
+            "offset": offset,
+            "has_more": has_more,
+            "next_offset": next_offset if has_more else None,
         }
 
     def delete_annotation(self, *, session_id: str, annotation_id: str) -> dict:
@@ -82,12 +107,25 @@ class AgentPdfWorkbenchService:
         record = self._store.upsert_note(session_id=session_id, note=note)
         return asdict(record)
 
-    def list_notes(self, *, session_id: str, limit: int = 100) -> dict:
-        records = self._store.list_notes(session_id=session_id, limit=limit)
+    def list_notes(self, *, session_id: str, limit: int = 100, offset: int = 0) -> dict:
+        records = self._store.list_notes(session_id=session_id, limit=limit, offset=offset)
+        has_more = False
+        next_offset = offset + len(records)
+        if len(records) == limit:
+            has_more = bool(
+                self._store.list_notes(
+                    session_id=session_id,
+                    limit=1,
+                    offset=next_offset,
+                )
+            )
         return {
             "session_id": session_id,
             "count": len(records),
             "notes": [asdict(record) for record in records],
+            "offset": offset,
+            "has_more": has_more,
+            "next_offset": next_offset if has_more else None,
         }
 
     def delete_note(self, *, session_id: str, note_id: str) -> dict:
@@ -116,9 +154,9 @@ class AgentPdfWorkbenchService:
         sessions = self._store.list_all_sessions()
         result = []
         for session in sessions:
-            events = self._store.list_events(session_id=session.id, limit=MAX_LIST_LIMIT)
-            annotations = self._store.list_annotations(session_id=session.id, limit=MAX_LIST_LIMIT)
-            notes = self._store.list_notes(session_id=session.id, limit=MAX_LIST_LIMIT)
+            events = self._list_all_events(session.id)
+            annotations = self._list_all_annotations(session.id)
+            notes = self._list_all_notes(session.id)
             result.append(
                 {
                     "session": asdict(session),
@@ -128,3 +166,54 @@ class AgentPdfWorkbenchService:
                 }
             )
         return {"sessions": result, "session_count": len(result)}
+
+    def _list_all_events(self, session_id: str) -> list:
+        events = []
+        after_id = None
+        while True:
+            batch = self._store.list_events(
+                session_id=session_id,
+                after_id=after_id,
+                limit=MAX_LIST_LIMIT,
+            )
+            if not batch:
+                break
+            events.extend(batch)
+            after_id = batch[-1].id
+            if len(batch) < MAX_LIST_LIMIT:
+                break
+        return events
+
+    def _list_all_annotations(self, session_id: str) -> list:
+        records = []
+        offset = 0
+        while True:
+            batch = self._store.list_annotations(
+                session_id=session_id,
+                limit=MAX_LIST_LIMIT,
+                offset=offset,
+            )
+            if not batch:
+                break
+            records.extend(batch)
+            offset += len(batch)
+            if len(batch) < MAX_LIST_LIMIT:
+                break
+        return records
+
+    def _list_all_notes(self, session_id: str) -> list:
+        records = []
+        offset = 0
+        while True:
+            batch = self._store.list_notes(
+                session_id=session_id,
+                limit=MAX_LIST_LIMIT,
+                offset=offset,
+            )
+            if not batch:
+                break
+            records.extend(batch)
+            offset += len(batch)
+            if len(batch) < MAX_LIST_LIMIT:
+                break
+        return records

@@ -13,6 +13,38 @@ from pathlib import Path
 
 from agent_pdf_workbench.store import EventStore, MAX_LIST_LIMIT
 
+TEST_TIME = "2026-05-19T12:00:00+00:00"
+
+
+def annotation_payload(**overrides):
+    payload = {
+        "id": "ann_test",
+        "page": 1,
+        "type": "highlight",
+        "quote": "test quote",
+        "anchor": None,
+        "comment": "",
+        "tags": [],
+        "rects": [],
+        "createdAt": TEST_TIME,
+        "updatedAt": TEST_TIME,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def note_payload(**overrides):
+    payload = {
+        "id": "note_test",
+        "title": "",
+        "markdown": "",
+        "linkedAnnotationIds": [],
+        "createdAt": TEST_TIME,
+        "updatedAt": TEST_TIME,
+    }
+    payload.update(overrides)
+    return payload
+
 
 class LimitValidationTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -91,6 +123,44 @@ class AnnotationValidationTest(unittest.TestCase):
                 annotation={"id": 42},
             )
 
+    def test_annotation_requires_page_type_and_range(self) -> None:
+        with self.assertRaisesRegex(ValueError, "annotation.page must be an integer"):
+            self._store.upsert_annotation(
+                session_id="ps_ann_fuzz",
+                annotation=annotation_payload(page="1"),
+            )
+        with self.assertRaisesRegex(ValueError, "annotation.page must be >= 1"):
+            self._store.upsert_annotation(
+                session_id="ps_ann_fuzz",
+                annotation=annotation_payload(page=0),
+            )
+
+    def test_annotation_requires_supported_type(self) -> None:
+        with self.assertRaisesRegex(ValueError, "annotation.type must be highlight or underline"):
+            self._store.upsert_annotation(
+                session_id="ps_ann_fuzz",
+                annotation=annotation_payload(type="squiggle"),
+            )
+
+    def test_annotation_validates_rects_and_anchor(self) -> None:
+        with self.assertRaisesRegex(ValueError, r"rects\[0\].width must be >= 0"):
+            self._store.upsert_annotation(
+                session_id="ps_ann_fuzz",
+                annotation=annotation_payload(rects=[{"x": 0, "y": 0, "width": -1, "height": 1}]),
+            )
+        with self.assertRaisesRegex(ValueError, "anchor.end must be >= anchor.start"):
+            self._store.upsert_annotation(
+                session_id="ps_ann_fuzz",
+                annotation=annotation_payload(anchor={"quote": "q", "start": 5, "end": 4}),
+            )
+
+    def test_annotation_requires_iso_timestamps(self) -> None:
+        with self.assertRaisesRegex(ValueError, "annotation.createdAt must be an ISO datetime string"):
+            self._store.upsert_annotation(
+                session_id="ps_ann_fuzz",
+                annotation=annotation_payload(createdAt="not-a-date"),
+            )
+
     def test_delete_empty_annotation_id_raises(self) -> None:
         with self.assertRaisesRegex(ValueError, "annotation_id must be a non-empty string"):
             self._store.delete_annotation(session_id="ps_ann_fuzz", annotation_id="   ")
@@ -132,6 +202,20 @@ class NoteValidationTest(unittest.TestCase):
                 note={"id": ""},
             )
 
+    def test_note_requires_string_linked_annotation_ids(self) -> None:
+        with self.assertRaisesRegex(ValueError, r"note.linkedAnnotationIds\[0\] must be a string"):
+            self._store.upsert_note(
+                session_id="ps_note_fuzz",
+                note=note_payload(linkedAnnotationIds=[123]),
+            )
+
+    def test_note_requires_iso_timestamps(self) -> None:
+        with self.assertRaisesRegex(ValueError, "note.updatedAt must be an ISO datetime string"):
+            self._store.upsert_note(
+                session_id="ps_note_fuzz",
+                note=note_payload(updatedAt="bad"),
+            )
+
     def test_delete_empty_note_id_raises(self) -> None:
         with self.assertRaisesRegex(ValueError, "note_id must be a non-empty string"):
             self._store.delete_note(session_id="ps_note_fuzz", note_id="")
@@ -141,14 +225,14 @@ class NoteValidationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Session is closed"):
             self._store.upsert_note(
                 session_id="ps_note_fuzz",
-                note={"id": "n1", "title": "", "markdown": "", "linkedAnnotationIds": []},
+                note=note_payload(id="n1"),
             )
         with self.assertRaisesRegex(ValueError, "Session is closed"):
             self._store.delete_note(session_id="ps_note_fuzz", note_id="n1")
         with self.assertRaisesRegex(ValueError, "Session is closed"):
             self._store.upsert_annotation(
                 session_id="ps_note_fuzz",
-                annotation={"id": "a1"},
+                annotation=annotation_payload(id="a1"),
             )
         with self.assertRaisesRegex(ValueError, "Session is closed"):
             self._store.delete_annotation(session_id="ps_note_fuzz", annotation_id="a1")
@@ -184,8 +268,15 @@ class JsonPayloadEdgeCaseTest(unittest.TestCase):
     def test_annotation_payload_with_special_chars_roundtrips(self) -> None:
         ann = {
             "id": "ann_special",
+            "page": 1,
+            "type": "highlight",
             "quote": 'He said "Hello" & <goodbye>',
+            "anchor": None,
+            "comment": "",
             "tags": ["a&b", "c<d>"],
+            "rects": [],
+            "createdAt": TEST_TIME,
+            "updatedAt": TEST_TIME,
         }
         record = self._store.upsert_annotation(session_id="ps_json", annotation=ann)
         annotations = self._store.list_annotations(session_id="ps_json")

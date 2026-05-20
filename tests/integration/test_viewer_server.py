@@ -324,6 +324,67 @@ class ViewerServerHardeningTest(unittest.TestCase):
         self.assertEqual(body_range.get("code"), "VALIDATION_ERROR")
         self.assertIn("page must be >= 1", body_range.get("error", ""))
 
+    def test_annotation_validation_returns_field_details(self) -> None:
+        open_status, _, opened = self._raw_request(
+            "POST",
+            f"{self._base}/api/open-paper",
+            {"paper_ref": "p_ann_validation", "pdf_uri": "/tmp/paper.pdf"},
+        )
+        self.assertEqual(open_status, 201)
+        status, _, body = self._raw_request(
+            "POST",
+            f"{self._base}/api/annotations",
+            {
+                "session_id": opened["id"],
+                "annotation": {
+                    "id": "ann_bad",
+                    "type": "highlight",
+                    "quote": "missing page and timestamps",
+                },
+            },
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(body.get("code"), "VALIDATION_ERROR")
+        self.assertEqual(body.get("details", {}).get("field"), "annotation.page")
+
+    def test_list_annotations_exposes_pagination_metadata(self) -> None:
+        open_status, _, opened = self._raw_request(
+            "POST",
+            f"{self._base}/api/open-paper",
+            {"paper_ref": "p_ann_page", "pdf_uri": "/tmp/paper.pdf"},
+        )
+        self.assertEqual(open_status, 201)
+        for index in range(2):
+            status, _, _ = self._raw_request(
+                "POST",
+                f"{self._base}/api/annotations",
+                {
+                    "session_id": opened["id"],
+                    "annotation": {
+                        "id": f"ann_page_{index}",
+                        "page": 1,
+                        "type": "highlight",
+                        "quote": f"quote {index}",
+                        "anchor": None,
+                        "comment": "",
+                        "tags": [],
+                        "rects": [],
+                        "createdAt": f"2026-05-19T12:00:0{index}+00:00",
+                        "updatedAt": f"2026-05-19T12:00:0{index}+00:00",
+                    },
+                },
+            )
+            self.assertEqual(status, 201)
+
+        status, _, body = self._raw_request(
+            "GET",
+            f"{self._base}/api/annotations?session_id={opened['id']}&limit=1&offset=0",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(body.get("count"), 1)
+        self.assertTrue(body.get("has_more"))
+        self.assertEqual(body.get("next_offset"), 1)
+
     def test_pdf_uri_null_byte_rejected(self) -> None:
         from urllib.parse import quote
         uri = quote("/tmp/bad\x00file.pdf", safe="")

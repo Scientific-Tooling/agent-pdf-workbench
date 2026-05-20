@@ -57,14 +57,24 @@ export default defineConfig({
     outDir: resolve(repoRoot, "src/agent_pdf_workbench/web"),
     emptyOutDir: true,
     sourcemap: false,
+    chunkSizeWarningLimit: 700,
     rollupOptions: {
       output: {
         entryFileNames: "app.js",
+        chunkFileNames: "[name]-[hash].js",
         assetFileNames: (assetInfo) => {
           if (assetInfo.name?.endsWith(".css")) {
             return "styles.css";
           }
           return "[name]-[hash][extname]";
+        },
+        manualChunks(id) {
+          if (id.includes("node_modules/pdfjs-dist")) {
+            return "pdfjs";
+          }
+          if (id.includes("node_modules/react") || id.includes("node_modules/react-dom")) {
+            return "react";
+          }
         },
       },
     },

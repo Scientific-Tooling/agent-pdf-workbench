@@ -16,11 +16,43 @@ from pathlib import Path
 from agent_pdf_workbench.service import AgentPdfWorkbenchService
 from agent_pdf_workbench.store import EventStore
 
+TEST_TIME = "2026-05-19T12:00:00+00:00"
+
+
+def annotation_payload(**overrides):
+    payload = {
+        "id": "ann_test",
+        "page": 1,
+        "type": "highlight",
+        "quote": "test quote",
+        "anchor": None,
+        "comment": "",
+        "tags": [],
+        "rects": [],
+        "createdAt": TEST_TIME,
+        "updatedAt": TEST_TIME,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def note_payload(**overrides):
+    payload = {
+        "id": "note_test",
+        "title": "",
+        "markdown": "",
+        "linkedAnnotationIds": [],
+        "createdAt": TEST_TIME,
+        "updatedAt": TEST_TIME,
+    }
+    payload.update(overrides)
+    return payload
+
 
 class LoadTest(unittest.TestCase):
     """Load test: simulate a long reading session with many events and annotations."""
 
-    _EVENT_COUNT = 1000
+    _EVENT_COUNT = 1205
     _ANNOTATION_COUNT = 200
     _NOTE_COUNT = 50
 
@@ -69,23 +101,23 @@ class LoadTest(unittest.TestCase):
             for i in range(self._ANNOTATION_COUNT):
                 store.upsert_annotation(
                     session_id="ps_ann_load",
-                    annotation={
-                        "id": f"ann_{i:04d}",
-                        "page": (i % 20) + 1,
-                        "type": "highlight",
-                        "quote": f"quote {i}",
-                    },
+                    annotation=annotation_payload(
+                        id=f"ann_{i:04d}",
+                        page=(i % 20) + 1,
+                        type="highlight",
+                        quote=f"quote {i}",
+                    ),
                 )
             # Update the first half.
             for i in range(self._ANNOTATION_COUNT // 2):
                 store.upsert_annotation(
                     session_id="ps_ann_load",
-                    annotation={
-                        "id": f"ann_{i:04d}",
-                        "page": (i % 20) + 1,
-                        "type": "underline",
-                        "quote": f"updated quote {i}",
-                    },
+                    annotation=annotation_payload(
+                        id=f"ann_{i:04d}",
+                        page=(i % 20) + 1,
+                        type="underline",
+                        quote=f"updated quote {i}",
+                    ),
                 )
             annotations = store.list_annotations(session_id="ps_ann_load", limit=1000)
             self.assertEqual(len(annotations), self._ANNOTATION_COUNT)
@@ -98,15 +130,62 @@ class LoadTest(unittest.TestCase):
             for i in range(self._NOTE_COUNT):
                 store.upsert_note(
                     session_id="ps_ann_load",
-                    note={
-                        "id": f"note_{i:04d}",
-                        "title": f"Note {i}",
-                        "markdown": f"Content {i}",
-                        "linkedAnnotationIds": [f"ann_{i:04d}"] if i < self._ANNOTATION_COUNT else [],
-                    },
+                    note=note_payload(
+                        id=f"note_{i:04d}",
+                        title=f"Note {i}",
+                        markdown=f"Content {i}",
+                        linkedAnnotationIds=[f"ann_{i:04d}"] if i < self._ANNOTATION_COUNT else [],
+                    ),
                 )
             notes = store.list_notes(session_id="ps_ann_load", limit=1000)
             self.assertEqual(len(notes), self._NOTE_COUNT)
+
+    def test_workspace_export_does_not_truncate_large_sessions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = AgentPdfWorkbenchService(Path(tmp_dir) / "export.db")
+            session = service.open_paper(
+                paper_ref="p_export_load",
+                pdf_uri="/tmp/export-load.pdf",
+                agent_id="agent:load",
+                user_id="user:load",
+            )
+            session_id = session["id"]
+
+            event_count = 1205
+            annotation_count = 205
+            note_count = 55
+
+            for i in range(event_count):
+                service.record_action(
+                    session_id=session_id,
+                    event_type="highlight",
+                    page=(i % 20) + 1,
+                    payload={"index": i},
+                )
+            for i in range(annotation_count):
+                service.upsert_annotation(
+                    session_id=session_id,
+                    annotation=annotation_payload(
+                        id=f"ann_export_{i:04d}",
+                        page=(i % 20) + 1,
+                        quote=f"quote {i}",
+                    ),
+                )
+            for i in range(note_count):
+                service.upsert_note(
+                    session_id=session_id,
+                    note=note_payload(
+                        id=f"note_export_{i:04d}",
+                        title=f"Note {i}",
+                        markdown=f"Content {i}",
+                    ),
+                )
+
+            exported = service.export_workspace()
+            exported_session = exported["sessions"][0]
+            self.assertEqual(len(exported_session["events"]), event_count)
+            self.assertEqual(len(exported_session["annotations"]), annotation_count)
+            self.assertEqual(len(exported_session["notes"]), note_count)
 
 
 class SessionCloseRegressionTest(unittest.TestCase):
@@ -130,7 +209,7 @@ class SessionCloseRegressionTest(unittest.TestCase):
         self._store.append_event(session_id="ps_close", event_type="highlight")
         self._store.upsert_annotation(
             session_id="ps_close",
-            annotation={"id": "ann_c1", "quote": "q"},
+            annotation=annotation_payload(id="ann_c1", quote="q"),
         )
         self._store.close_session("ps_close")
         # Reads must succeed.
@@ -144,12 +223,12 @@ class SessionCloseRegressionTest(unittest.TestCase):
         write_ops = [
             lambda: self._store.append_event(session_id="ps_close", event_type="x"),
             lambda: self._store.upsert_annotation(
-                session_id="ps_close", annotation={"id": "a"}
+                session_id="ps_close", annotation=annotation_payload(id="a")
             ),
             lambda: self._store.delete_annotation(session_id="ps_close", annotation_id="a"),
             lambda: self._store.upsert_note(
                 session_id="ps_close",
-                note={"id": "n", "title": "", "markdown": "", "linkedAnnotationIds": []},
+                note=note_payload(id="n"),
             ),
             lambda: self._store.delete_note(session_id="ps_close", note_id="n"),
         ]
@@ -182,7 +261,7 @@ class IdempotencyTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_upsert_annotation_is_idempotent(self) -> None:
-        ann = {"id": "ann_i", "quote": "same"}
+        ann = annotation_payload(id="ann_i", quote="same")
         r1 = self._store.upsert_annotation(session_id="ps_idem", annotation=ann)
         r2 = self._store.upsert_annotation(session_id="ps_idem", annotation=ann)
         self.assertEqual(r1.id, r2.id)
@@ -190,7 +269,7 @@ class IdempotencyTest(unittest.TestCase):
         self.assertEqual(len(self._store.list_annotations(session_id="ps_idem")), 1)
 
     def test_upsert_note_is_idempotent(self) -> None:
-        note = {"id": "note_i", "title": "t", "markdown": "m", "linkedAnnotationIds": []}
+        note = note_payload(id="note_i", title="t", markdown="m")
         r1 = self._store.upsert_note(session_id="ps_idem", note=note)
         r2 = self._store.upsert_note(session_id="ps_idem", note=note)
         self.assertEqual(r1.id, r2.id)
@@ -206,7 +285,10 @@ class IdempotencyTest(unittest.TestCase):
         self.assertFalse(self._store.delete_note(session_id="ps_idem", note_id="no_such"))
 
     def test_delete_annotation_then_delete_again_returns_false(self) -> None:
-        self._store.upsert_annotation(session_id="ps_idem", annotation={"id": "ann_del"})
+        self._store.upsert_annotation(
+            session_id="ps_idem",
+            annotation=annotation_payload(id="ann_del"),
+        )
         self.assertTrue(
             self._store.delete_annotation(session_id="ps_idem", annotation_id="ann_del")
         )

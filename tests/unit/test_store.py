@@ -7,6 +7,38 @@ from pathlib import Path
 
 from agent_pdf_workbench.store import EventStore, SCHEMA_VERSION
 
+TEST_TIME = "2026-05-19T12:00:00+00:00"
+
+
+def annotation_payload(**overrides):
+    payload = {
+        "id": "ann_test",
+        "page": 1,
+        "type": "highlight",
+        "quote": "test quote",
+        "anchor": None,
+        "comment": "",
+        "tags": [],
+        "rects": [],
+        "createdAt": TEST_TIME,
+        "updatedAt": TEST_TIME,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def note_payload(**overrides):
+    payload = {
+        "id": "note_test",
+        "title": "",
+        "markdown": "",
+        "linkedAnnotationIds": [],
+        "createdAt": TEST_TIME,
+        "updatedAt": TEST_TIME,
+    }
+    payload.update(overrides)
+    return payload
+
 
 class EventStoreTest(unittest.TestCase):
     def test_open_append_and_list(self) -> None:
@@ -247,30 +279,30 @@ class EventStoreTest(unittest.TestCase):
 
             ann = store.upsert_annotation(
                 session_id="ps_1001",
-                annotation={
-                    "id": "ann_1",
-                    "page": 2,
-                    "type": "highlight",
-                    "quote": "attention is all you need",
-                    "comment": "core idea",
-                    "tags": ["idea"],
-                    "rects": [{"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.1}],
-                },
+                annotation=annotation_payload(
+                    id="ann_1",
+                    page=2,
+                    type="highlight",
+                    quote="attention is all you need",
+                    comment="core idea",
+                    tags=["idea"],
+                    rects=[{"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.1}],
+                ),
             )
             self.assertEqual(ann.id, "ann_1")
             self.assertEqual(ann.annotation["quote"], "attention is all you need")
 
             ann_updated = store.upsert_annotation(
                 session_id="ps_1001",
-                annotation={
-                    "id": "ann_1",
-                    "page": 2,
-                    "type": "highlight",
-                    "quote": "attention is all you need",
-                    "comment": "updated",
-                    "tags": ["idea", "todo"],
-                    "rects": [{"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.1}],
-                },
+                annotation=annotation_payload(
+                    id="ann_1",
+                    page=2,
+                    type="highlight",
+                    quote="attention is all you need",
+                    comment="updated",
+                    tags=["idea", "todo"],
+                    rects=[{"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.1}],
+                ),
             )
             self.assertEqual(ann_updated.annotation["comment"], "updated")
             annotations = store.list_annotations(session_id="ps_1001", limit=10)
@@ -279,12 +311,12 @@ class EventStoreTest(unittest.TestCase):
 
             note = store.upsert_note(
                 session_id="ps_1001",
-                note={
-                    "id": "note_1",
-                    "title": "note title",
-                    "markdown": "content",
-                    "linkedAnnotationIds": ["ann_1"],
-                },
+                note=note_payload(
+                    id="note_1",
+                    title="note title",
+                    markdown="content",
+                    linkedAnnotationIds=["ann_1"],
+                ),
             )
             self.assertEqual(note.id, "note_1")
 
@@ -316,7 +348,7 @@ class EventStoreTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Session is closed"):
                 store.upsert_annotation(
                     session_id="ps_1002",
-                    annotation={"id": "ann_x", "page": 1, "type": "highlight", "rects": []},
+                    annotation=annotation_payload(id="ann_x"),
                 )
             with self.assertRaisesRegex(ValueError, "Session is closed"):
                 store.delete_annotation(session_id="ps_1002", annotation_id="ann_x")
@@ -324,7 +356,7 @@ class EventStoreTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Session is closed"):
                 store.upsert_note(
                     session_id="ps_1002",
-                    note={"id": "note_x", "title": "", "markdown": "", "linkedAnnotationIds": []},
+                    note=note_payload(id="note_x"),
                 )
             with self.assertRaisesRegex(ValueError, "Session is closed"):
                 store.delete_note(session_id="ps_1002", note_id="note_x")

@@ -24,6 +24,8 @@ export interface ListActionsResponse {
   session_id: string;
   count: number;
   events: ActionEvent[];
+  has_more: boolean;
+  next_after_id: number | null;
 }
 
 export interface RecordActionParams {
@@ -91,12 +93,18 @@ export interface ListAnnotationsResponse {
   session_id: string;
   count: number;
   annotations: AnnotationRecord[];
+  offset: number;
+  has_more: boolean;
+  next_offset: number | null;
 }
 
 export interface ListNotesResponse {
   session_id: string;
   count: number;
   notes: NoteRecord[];
+  offset: number;
+  has_more: boolean;
+  next_offset: number | null;
 }
 
 export interface SearchResult {

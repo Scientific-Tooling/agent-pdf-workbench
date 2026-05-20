@@ -11,6 +11,7 @@ DEFAULT_LIST_LIMIT = 100
 MAX_LIST_LIMIT = 1000
 EVENT_COALESCE_WINDOW_SECONDS = 0.75
 COALESCIBLE_EVENT_TYPES = frozenset({"page_change", "zoom_change"})
+ANNOTATION_TYPES = frozenset({"highlight", "underline"})
 
 # Increment this when adding a new migration entry to _MIGRATIONS.
 SCHEMA_VERSION = 1
@@ -96,6 +97,196 @@ def _validate_limit(limit: int) -> int:
     if limit > MAX_LIST_LIMIT:
         raise ValueError(f"limit must be <= {MAX_LIST_LIMIT}")
     return limit
+
+
+def _validate_offset(offset: int) -> int:
+    if offset < 0:
+        raise ValueError("offset must be >= 0")
+    return offset
+
+
+def _require_non_empty_string(payload: dict[str, Any], field: str, *, label: str | None = None) -> str:
+    value = payload.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label or field} must be a non-empty string")
+    return value
+
+
+def _optional_string_value(
+    payload: dict[str, Any],
+    field: str,
+    default: str = "",
+    *,
+    label: str | None = None,
+) -> str:
+    value = payload.get(field, default)
+    if not isinstance(value, str):
+        raise ValueError(f"{label or field} must be a string")
+    return value
+
+
+def _require_int(
+    payload: dict[str, Any],
+    field: str,
+    *,
+    minimum: int | None = None,
+    label: str | None = None,
+) -> int:
+    value = payload.get(field)
+    if type(value) is not int:
+        raise ValueError(f"{label or field} must be an integer")
+    if minimum is not None and value < minimum:
+        raise ValueError(f"{label or field} must be >= {minimum}")
+    return value
+
+
+def _require_iso_string(payload: dict[str, Any], field: str, *, label: str | None = None) -> str:
+    value = _require_non_empty_string(payload, field, label=label)
+    if EventStore._parse_iso_datetime(value) is None:
+        raise ValueError(f"{label or field} must be an ISO datetime string")
+    return value
+
+
+def _validate_string_list(value: Any, field: str) -> list[str]:
+    if not isinstance(value, list):
+        raise ValueError(f"{field} must be an array")
+    result: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str):
+            raise ValueError(f"{field}[{index}] must be a string")
+        result.append(item)
+    return result
+
+
+def _validate_rects(value: Any) -> list[dict[str, float]]:
+    if not isinstance(value, list):
+        raise ValueError("rects must be an array")
+    result: list[dict[str, float]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise ValueError(f"rects[{index}] must be an object")
+        rect: dict[str, float] = {}
+        for key in ("x", "y", "width", "height"):
+            number = item.get(key)
+            if type(number) not in (int, float):
+                raise ValueError(f"rects[{index}].{key} must be a number")
+            if not isinstance(number, bool):
+                rect[key] = float(number)
+        if rect["width"] < 0:
+            raise ValueError(f"rects[{index}].width must be >= 0")
+        if rect["height"] < 0:
+            raise ValueError(f"rects[{index}].height must be >= 0")
+        result.append(rect)
+    return result
+
+
+def _validate_text_anchor(value: Any, fallback_quote: str) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("anchor must be an object")
+    quote = value.get("quote", fallback_quote)
+    if not isinstance(quote, str):
+        raise ValueError("anchor.quote must be a string")
+    start = value.get("start")
+    end = value.get("end")
+    if start is not None and type(start) is not int:
+        raise ValueError("anchor.start must be an integer or null")
+    if end is not None and type(end) is not int:
+        raise ValueError("anchor.end must be an integer or null")
+    if start is not None and start < 0:
+        raise ValueError("anchor.start must be >= 0")
+    if end is not None and end < 0:
+        raise ValueError("anchor.end must be >= 0")
+    if start is not None and end is not None and end < start:
+        raise ValueError("anchor.end must be >= anchor.start")
+    prefix = value.get("prefix", "")
+    suffix = value.get("suffix", "")
+    if not isinstance(prefix, str):
+        raise ValueError("anchor.prefix must be a string")
+    if not isinstance(suffix, str):
+        raise ValueError("anchor.suffix must be a string")
+    return {
+        "quote": quote,
+        "start": start,
+        "end": end,
+        "prefix": prefix,
+        "suffix": suffix,
+    }
+
+
+def validate_event_payload(
+    *,
+    event_type: str,
+    page: int | None,
+    selection_text: str | None,
+    payload: dict[str, Any] | None,
+    source: str,
+) -> dict[str, Any]:
+    if not isinstance(event_type, str) or not event_type.strip():
+        raise ValueError("event_type must be a non-empty string")
+    if page is not None and (type(page) is not int or page < 1):
+        raise ValueError("page must be an integer >= 1")
+    if selection_text is not None and not isinstance(selection_text, str):
+        raise ValueError("selection_text must be a string or null")
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be an object")
+    if not isinstance(source, str) or not source.strip():
+        raise ValueError("source must be a non-empty string")
+    return payload
+
+
+def validate_annotation_payload(annotation: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(annotation, dict):
+        raise ValueError("annotation must be an object")
+    annotation_id = _require_non_empty_string(annotation, "id", label="annotation.id")
+    page = _require_int(annotation, "page", minimum=1, label="annotation.page")
+    annotation_type = _require_non_empty_string(annotation, "type", label="annotation.type")
+    if annotation_type not in ANNOTATION_TYPES:
+        raise ValueError("annotation.type must be highlight or underline")
+    quote = _optional_string_value(annotation, "quote", "", label="annotation.quote")
+    comment = _optional_string_value(annotation, "comment", "", label="annotation.comment")
+    tags = _validate_string_list(annotation.get("tags", []), "annotation.tags")
+    rects = _validate_rects(annotation.get("rects", []))
+    anchor = _validate_text_anchor(annotation.get("anchor"), quote)
+    created_at = _require_iso_string(annotation, "createdAt", label="annotation.createdAt")
+    updated_at = _require_iso_string(annotation, "updatedAt", label="annotation.updatedAt")
+    return {
+        "id": annotation_id,
+        "page": page,
+        "type": annotation_type,
+        "quote": quote,
+        "anchor": anchor,
+        "comment": comment,
+        "tags": tags,
+        "rects": rects,
+        "createdAt": created_at,
+        "updatedAt": updated_at,
+    }
+
+
+def validate_note_payload(note: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(note, dict):
+        raise ValueError("note must be an object")
+    note_id = _require_non_empty_string(note, "id", label="note.id")
+    title = _optional_string_value(note, "title", "", label="note.title")
+    markdown = _optional_string_value(note, "markdown", "", label="note.markdown")
+    linked_ids = _validate_string_list(
+        note.get("linkedAnnotationIds", []),
+        "note.linkedAnnotationIds",
+    )
+    created_at = _require_iso_string(note, "createdAt", label="note.createdAt")
+    updated_at = _require_iso_string(note, "updatedAt", label="note.updatedAt")
+    return {
+        "id": note_id,
+        "title": title,
+        "markdown": markdown,
+        "linkedAnnotationIds": linked_ids,
+        "createdAt": created_at,
+        "updatedAt": updated_at,
+    }
 
 
 @dataclass(frozen=True)
@@ -270,6 +461,13 @@ class EventStore:
         session = self.get_session(session_id)
         if session.closed_at is not None:
             raise ValueError(f"Session is closed: {session_id}")
+        payload = validate_event_payload(
+            event_type=event_type,
+            page=page,
+            selection_text=selection_text,
+            payload=payload,
+            source=source,
+        )
         now = _utc_now()
         payload_json = json.dumps(payload or {}, ensure_ascii=True)
         with self._connect() as conn:
@@ -356,10 +554,9 @@ class EventStore:
         session = self.get_session(session_id)
         if session.closed_at is not None:
             raise ValueError(f"Session is closed: {session_id}")
+        annotation = validate_annotation_payload(annotation)
 
-        annotation_id = annotation.get("id")
-        if not isinstance(annotation_id, str) or not annotation_id.strip():
-            raise ValueError("annotation.id must be a non-empty string")
+        annotation_id = annotation["id"]
 
         now = _utc_now()
         payload_json = json.dumps(annotation, ensure_ascii=True)
@@ -406,9 +603,11 @@ class EventStore:
         *,
         session_id: str,
         limit: int = DEFAULT_LIST_LIMIT,
+        offset: int = 0,
     ) -> list[AnnotationRecord]:
         self.get_session(session_id)
         validated_limit = _validate_limit(limit)
+        validated_offset = _validate_offset(offset)
         with self._connect() as conn:
             rows = conn.execute(
                 """
@@ -416,8 +615,9 @@ class EventStore:
                 WHERE session_id = ?
                 ORDER BY updated_at DESC, annotation_id ASC
                 LIMIT ?
+                OFFSET ?
                 """,
-                (session_id, validated_limit),
+                (session_id, validated_limit, validated_offset),
             ).fetchall()
         return [self._annotation_from_row(row) for row in rows]
 
@@ -441,10 +641,9 @@ class EventStore:
         session = self.get_session(session_id)
         if session.closed_at is not None:
             raise ValueError(f"Session is closed: {session_id}")
+        note = validate_note_payload(note)
 
-        note_id = note.get("id")
-        if not isinstance(note_id, str) or not note_id.strip():
-            raise ValueError("note.id must be a non-empty string")
+        note_id = note["id"]
 
         now = _utc_now()
         payload_json = json.dumps(note, ensure_ascii=True)
@@ -491,9 +690,11 @@ class EventStore:
         *,
         session_id: str,
         limit: int = DEFAULT_LIST_LIMIT,
+        offset: int = 0,
     ) -> list[NoteRecord]:
         self.get_session(session_id)
         validated_limit = _validate_limit(limit)
+        validated_offset = _validate_offset(offset)
         with self._connect() as conn:
             rows = conn.execute(
                 """
@@ -501,8 +702,9 @@ class EventStore:
                 WHERE session_id = ?
                 ORDER BY updated_at DESC, note_id ASC
                 LIMIT ?
+                OFFSET ?
                 """,
-                (session_id, validated_limit),
+                (session_id, validated_limit, validated_offset),
             ).fetchall()
         return [self._note_from_row(row) for row in rows]
 

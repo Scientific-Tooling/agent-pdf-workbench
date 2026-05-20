@@ -10,7 +10,7 @@ import { WorkspacePanel } from "../components/WorkspacePanel";
 import { useGlobalWorkspaceShortcuts } from "../hooks/useGlobalWorkspaceShortcuts";
 import { useSyncedRef } from "../hooks/useSyncedRef";
 import { useToastStack } from "../hooks/useToastStack";
-import { apiGet, apiPost } from "../services/api";
+import { apiPost } from "../services/api";
 import {
   getSelectionRectsAndQuote as getSelectionRectsAndQuoteFromDom,
   renderAnnotationLayer as renderAnnotationLayerFromDom,
@@ -24,7 +24,7 @@ import {
 } from "./app-types";
 import type { PendingSelection, PdfDocumentLike, PdfOutlineNode, PdfViewportLike } from "./app-types";
 import { exportJson as exportJsonFile, exportMarkdown as exportMarkdownFile } from "../services/exporters";
-import { asAnnotation, asAnnotationRecord, asNote, asNoteRecord } from "../pdf/main-parsers";
+import { asAnnotation, asNote } from "../pdf/main-parsers";
 import { clamp, errorMessage, nowIso, parseLinkedIds, parseTags, uid } from "../utils/main-utils";
 import {
   applySearchHighlightsToCurrentPage as applySearchHighlightsToCurrentPageInDom,
@@ -37,9 +37,6 @@ import type {
   Annotation,
   AnnotationRecord,
   AnnotationType,
-  ListAnnotationsResponse,
-  ListActionsResponse,
-  ListNotesResponse,
   Note,
   NoteRecord,
   OutlineItem,
@@ -47,18 +44,10 @@ import type {
   RecentPaper,
   SearchResult,
 } from "../types/types";
+import { usePageCache } from "./usePageCache";
+import { useWorkspaceData } from "./useWorkspaceData";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
-
-const PAGE_CACHE_LIMIT = 8;
-
-type PageCacheEntry = {
-  bitmap: ImageBitmap;
-  textContent: unknown;
-  viewport: PdfViewportLike;
-  zoom: number;
-  lastUsedAt: number;
-};
 
 export function App() {
   const [session, setSession] = useState<PaperSession | null>(null);
@@ -67,11 +56,6 @@ export function App() {
   const [pdfUri, setPdfUri] = useState("/tmp/paper.pdf");
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(1.35);
-  const [annotations, setAnnotations] = useState<Annotation[]>([]);
-  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
-  const [events, setEvents] = useState<ActionEvent[]>([]);
   const [searchInputValue, setSearchInputValue] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -95,12 +79,34 @@ export function App() {
 
   const { toasts, showToast } = useToastStack();
 
-  const pageTextCacheRef = useRef<Map<number, string>>(new Map());
   const sessionRef = useSyncedRef<PaperSession | null>(session);
   const pdfDocRef = useSyncedRef<PdfDocumentLike | null>(pdfDoc);
   const pageRef = useSyncedRef<number>(page);
   const zoomRef = useSyncedRef<number>(zoom);
-  const eventsRef = useSyncedRef<ActionEvent[]>(events);
+  const {
+    pageTextCacheRef,
+    pageCacheRef,
+    disposeBitmap,
+    clearPageCache,
+    setPageCacheEntry,
+  } = usePageCache();
+  const {
+    annotations,
+    selectedAnnotationId,
+    setSelectedAnnotationId,
+    notes,
+    selectedNoteId,
+    setSelectedNoteId,
+    events,
+    upsertEvent,
+    refreshEvents,
+    refreshDomainState,
+    upsertAnnotation,
+    deleteAnnotation,
+    upsertNote,
+    deleteNote,
+    clearWorkspaceData,
+  } = useWorkspaceData({ sessionRef });
 
   const pdfStageRef = useRef<HTMLDivElement | null>(null);
   const pdfCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -109,10 +115,6 @@ export function App() {
   const quickAnnotatorRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const isChangingPageRef = useRef(false);
-  const pageCacheRef = useRef<Map<number, PageCacheEntry>>(new Map());
-  const domainRefreshScheduledRef = useRef(false);
-  const domainRefreshPromiseRef = useRef<Promise<void> | null>(null);
-  const domainRefreshSessionRef = useRef<string | null>(null);
 
   const {
     selectedAnnotation,
@@ -215,64 +217,6 @@ export function App() {
     }
   }
 
-  function disposeBitmap(bitmap: ImageBitmap): void {
-    try {
-      bitmap.close();
-    } catch {
-      // Ignore close errors for runtime compatibility.
-    }
-  }
-
-  function clearPageCache(): void {
-    for (const entry of pageCacheRef.current.values()) {
-      disposeBitmap(entry.bitmap);
-    }
-    pageCacheRef.current.clear();
-  }
-
-  function setPageCacheEntry(
-    pageNumber: number,
-    entry: {
-      bitmap: ImageBitmap;
-      textContent: unknown;
-      viewport: PdfViewportLike;
-      zoom: number;
-    },
-  ): void {
-    const cache = pageCacheRef.current;
-    const existing = cache.get(pageNumber);
-    if (existing) {
-      disposeBitmap(existing.bitmap);
-    }
-
-    cache.set(pageNumber, {
-      ...entry,
-      lastUsedAt: Date.now(),
-    });
-
-    while (cache.size > PAGE_CACHE_LIMIT) {
-      let oldestKey: number | null = null;
-      let oldestUsedAt = Number.POSITIVE_INFINITY;
-
-      for (const [key, value] of cache.entries()) {
-        if (value.lastUsedAt < oldestUsedAt) {
-          oldestUsedAt = value.lastUsedAt;
-          oldestKey = key;
-        }
-      }
-
-      if (oldestKey === null) {
-        break;
-      }
-
-      const evicted = cache.get(oldestKey);
-      if (evicted) {
-        disposeBitmap(evicted.bitmap);
-      }
-      cache.delete(oldestKey);
-    }
-  }
-
   function resetWorkspaceState(): void {
     setSession(null);
     setPdfDoc(null);
@@ -284,11 +228,7 @@ export function App() {
     setPageJumpInput("");
     setZoom(1.35);
     zoomRef.current = 1.35;
-    setAnnotations([]);
-    setSelectedAnnotationId(null);
-    setNotes([]);
-    setSelectedNoteId(null);
-    setEvents([]);
+    clearWorkspaceData();
     setSearchInputValue("");
     setSearchQuery("");
     setSearchResults([]);
@@ -327,14 +267,6 @@ export function App() {
     setRecentPapers(getRecentPapers());
   }
 
-  function upsertEvent(event: ActionEvent): void {
-    setEvents((prev) => {
-      const byId = new Map(prev.map((item) => [item.id, item]));
-      byId.set(event.id, event);
-      return Array.from(byId.values()).sort((a, b) => a.id - b.id);
-    });
-  }
-
   function tagsEqual(left: string[], right: string[]): boolean {
     if (left.length !== right.length) {
       return false;
@@ -345,113 +277,6 @@ export function App() {
       }
     }
     return true;
-  }
-
-  async function refreshEvents(options: { sessionId?: string; incremental?: boolean } = {}): Promise<void> {
-    const sid = options.sessionId ?? sessionRef.current?.id;
-    if (!sid) {
-      return;
-    }
-    const incremental = options.incremental ?? true;
-    const lastEventId = incremental ? eventsRef.current[eventsRef.current.length - 1]?.id : undefined;
-    const afterQuery = lastEventId !== undefined ? `&after_id=${encodeURIComponent(String(lastEventId))}` : "";
-    const data = await apiGet<ListActionsResponse>(
-      `/api/list-actions?session_id=${encodeURIComponent(sid)}&limit=1000${afterQuery}`,
-    );
-    if (!incremental) {
-      setEvents(data.events);
-      return;
-    }
-    if (data.events.length === 0) {
-      return;
-    }
-    setEvents((prev) => {
-      const byId = new Map(prev.map((item) => [item.id, item]));
-      for (const item of data.events) {
-        byId.set(item.id, item);
-      }
-      return Array.from(byId.values()).sort((a, b) => a.id - b.id);
-    });
-  }
-
-  async function refreshAnnotations(sessionIdOverride?: string): Promise<void> {
-    const sid = sessionIdOverride ?? sessionRef.current?.id;
-    if (!sid) {
-      return;
-    }
-    const data = await apiGet<ListAnnotationsResponse>(
-      `/api/annotations?session_id=${encodeURIComponent(sid)}&limit=1000`,
-    );
-    const next: Annotation[] = [];
-    for (const raw of data.annotations) {
-      const parsed = asAnnotationRecord(raw);
-      if (parsed) {
-        next.push(parsed.annotation);
-      }
-    }
-    setAnnotations(next);
-    setSelectedAnnotationId((prev) => {
-      if (!prev) {
-        return null;
-      }
-      return next.some((annotation) => annotation.id === prev) ? prev : null;
-    });
-  }
-
-  async function refreshNotes(sessionIdOverride?: string): Promise<void> {
-    const sid = sessionIdOverride ?? sessionRef.current?.id;
-    if (!sid) {
-      return;
-    }
-    const data = await apiGet<ListNotesResponse>(`/api/notes?session_id=${encodeURIComponent(sid)}&limit=1000`);
-    const next: Note[] = [];
-    for (const raw of data.notes) {
-      const parsed = asNoteRecord(raw);
-      if (parsed) {
-        next.push(parsed.note);
-      }
-    }
-    setNotes(next);
-    setSelectedNoteId((prev) => {
-      if (!prev) {
-        return null;
-      }
-      return next.some((note) => note.id === prev) ? prev : null;
-    });
-  }
-
-  function startDomainRefreshLoop(): void {
-    if (domainRefreshPromiseRef.current) {
-      return;
-    }
-    domainRefreshPromiseRef.current = (async () => {
-      while (domainRefreshScheduledRef.current) {
-        domainRefreshScheduledRef.current = false;
-        const sid = domainRefreshSessionRef.current ?? sessionRef.current?.id;
-        if (!sid) {
-          continue;
-        }
-        await Promise.all([refreshAnnotations(sid), refreshNotes(sid)]);
-      }
-    })().finally(() => {
-      domainRefreshPromiseRef.current = null;
-      if (domainRefreshScheduledRef.current) {
-        startDomainRefreshLoop();
-      }
-    });
-  }
-
-  async function refreshDomainState(sessionIdOverride?: string): Promise<void> {
-    const sid = sessionIdOverride ?? sessionRef.current?.id;
-    if (!sid) {
-      return;
-    }
-    domainRefreshSessionRef.current = sid;
-    domainRefreshScheduledRef.current = true;
-    startDomainRefreshLoop();
-    if (domainRefreshPromiseRef.current) {
-      await domainRefreshPromiseRef.current;
-    }
   }
 
   async function recordAction(
@@ -710,34 +535,6 @@ export function App() {
       ANCHOR_CONTEXT_CHARS,
       clearSelection,
     );
-  }
-
-  function upsertAnnotation(annotation: Annotation): void {
-    setAnnotations((prev) => {
-      const next = prev.filter((item) => item.id !== annotation.id);
-      next.push(annotation);
-      return next;
-    });
-    setSelectedAnnotationId(annotation.id);
-  }
-
-  function deleteAnnotation(annotationId: string): void {
-    setAnnotations((prev) => prev.filter((annotation) => annotation.id !== annotationId));
-    setSelectedAnnotationId((prev) => (prev === annotationId ? null : prev));
-  }
-
-  function upsertNote(note: Note): void {
-    setNotes((prev) => {
-      const next = prev.filter((item) => item.id !== note.id);
-      next.push(note);
-      return next;
-    });
-    setSelectedNoteId(note.id);
-  }
-
-  function deleteNote(noteId: string): void {
-    setNotes((prev) => prev.filter((note) => note.id !== noteId));
-    setSelectedNoteId((prev) => (prev === noteId ? null : prev));
   }
 
   async function createAnnotation(
@@ -1036,11 +833,7 @@ export function App() {
     setSearchQuery("");
     setSearchResults([]);
     setSearchCursor(0);
-    setSelectedAnnotationId(null);
-    setSelectedNoteId(null);
-    setAnnotations([]);
-    setNotes([]);
-    setEvents([]);
+    clearWorkspaceData();
 
     const progress = getProgress(paperRefValue);
     const nextZoom = progress?.zoom ?? 1.35;

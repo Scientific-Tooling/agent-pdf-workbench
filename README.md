@@ -148,6 +148,15 @@ Exposed tools (v0):
 - `record_action`
 - `list_actions`
 - `close_paper`
+- `upsert_annotation`
+- `list_annotations`
+- `delete_annotation`
+- `upsert_note`
+- `list_notes`
+- `delete_note`
+- `export_workspace`
+
+See [docs/mcp-tools.md](docs/mcp-tools.md) for tool contracts and examples.
 
 ## PDF viewer
 
@@ -198,8 +207,8 @@ HTTP API:
 
 - `GET /api/health` — service health, version, schema version
 - `GET /api/list-actions?session_id=...&after_id=...&limit=...`
-- `GET /api/annotations?session_id=...&limit=...`
-- `GET /api/notes?session_id=...&limit=...`
+- `GET /api/annotations?session_id=...&limit=...&offset=...`
+- `GET /api/notes?session_id=...&limit=...&offset=...`
 - `POST /api/open-paper` (`{paper_ref, pdf_uri, agent_id?, user_id?, metadata?}`)
 - `POST /api/record-action` (`{session_id, event_type, page?, selection_text?, payload?, source?}`)
 - `POST /api/close-paper` (`{session_id}`)
@@ -219,8 +228,14 @@ Action event semantics:
 - `after_id` in `list-actions` only returns rows with larger ids; callers should upsert events by
   id and treat `record-action` response as authoritative for the latest coalesced value.
 
+List responses include pagination metadata (`has_more` plus `next_after_id` or
+`next_offset`) so long sessions can be fetched without truncation.
+
 Error responses always include `{"error": "...", "code": "..."}` with a machine-readable code
 (`MISSING_FIELD`, `VALIDATION_ERROR`, `FORBIDDEN`, `PAYLOAD_TOO_LARGE`, `BAD_GATEWAY`).
+Validation errors include `details.field` when the failing field can be identified.
+
+See [docs/api-contract.md](docs/api-contract.md) for full payload contracts.
 
 E2E main-path test:
 

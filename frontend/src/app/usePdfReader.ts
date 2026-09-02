@@ -15,6 +15,9 @@ import { usePageCache } from "./usePageCache";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
+/** Breathing room kept between the page edge and the stage when fitting width. */
+const STAGE_GUTTER_PX = 24;
+
 /** What is on screen: captured when the document opens, reported back on render. */
 export interface OpenDocument {
   paperRef: string;
@@ -70,6 +73,9 @@ export function usePdfReader(params: PdfReaderParams) {
   const zoomRef = useSyncedRef<number>(zoom);
   const isChangingPageRef = useRef(false);
   const openDocumentRef = useRef<OpenDocument | null>(null);
+  // While true the page follows the window width. A manual zoom turns it off;
+  // pressing Fit Width turns it back on.
+  const followsWidthRef = useRef(true);
   const renderTokenRef = useRef(0);
   const activeTextLayerRef = useRef<pdfjsLib.TextLayer | null>(null);
 
@@ -321,6 +327,9 @@ export function usePdfReader(params: PdfReaderParams) {
       pdfUri: params.pdfUri,
       sessionId: params.sessionId,
     };
+    // A saved zoom is the reader's own choice and wins; without one the page
+    // fits the width it actually has.
+    followsWidthRef.current = params.zoom === undefined;
     if (params.zoom !== undefined) {
       setZoomLevel(params.zoom);
     }
@@ -337,6 +346,12 @@ export function usePdfReader(params: PdfReaderParams) {
       pageTextCacheRef.current.clear();
       clearPageCache();
       await buildOutline(doc);
+      if (followsWidthRef.current) {
+        const fitted = await widthFittingScale();
+        if (fitted !== null) {
+          setZoomLevel(fitted);
+        }
+      }
       const normalizedPage = clamp(preferredPage, 1, doc.numPages);
       await renderPage(normalizedPage, true, doc);
     });
@@ -370,10 +385,13 @@ export function usePdfReader(params: PdfReaderParams) {
     await renderPage(clamp(Math.round(requested), 1, doc.numPages), true);
   }
 
-  async function applyZoom(nextZoom: number): Promise<void> {
+  async function applyZoom(nextZoom: number, options: { manual?: boolean } = {}): Promise<void> {
     const doc = pdfDocRef.current;
     if (!doc) {
       return;
+    }
+    if (options.manual !== false) {
+      followsWidthRef.current = false;
     }
     const normalized = clamp(nextZoom, MIN_ZOOM, MAX_ZOOM);
     if (Math.abs(normalized - zoomRef.current) < 0.001) {
@@ -385,15 +403,35 @@ export function usePdfReader(params: PdfReaderParams) {
     await renderPage(pageRef.current, false);
   }
 
-  async function fitWidth(): Promise<void> {
+  async function fitWidth(options: { manual?: boolean } = {}): Promise<void> {
+    const scale = await widthFittingScale();
+    if (scale === null) {
+      return;
+    }
+    await applyZoom(scale, { manual: false });
+    if (options.manual !== false) {
+      // An explicit Fit Width means "keep doing this as the window changes".
+      followsWidthRef.current = true;
+    }
+  }
+
+  async function widthFittingScale(): Promise<number | null> {
     const doc = pdfDocRef.current;
     const stage = pdfStageRef.current;
-    if (!doc || !stage) {
-      return;
+    if (!doc || !stage || stage.clientWidth <= 0) {
+      return null;
     }
     const activePage = await doc.getPage(pageRef.current);
     const baseViewport = activePage.getViewport({ scale: 1 });
-    await applyZoom((stage.clientWidth - 24) / baseViewport.width);
+    return clamp((stage.clientWidth - STAGE_GUTTER_PX) / baseViewport.width, MIN_ZOOM, MAX_ZOOM);
+  }
+
+  /** Refit after the stage resizes, but only while the page is following it. */
+  function refitToStage(): void {
+    if (!followsWidthRef.current || !pdfDocRef.current) {
+      return;
+    }
+    void fitWidth({ manual: false });
   }
 
   /** Page-turn on wheel at the top/bottom of the stage. */
@@ -450,6 +488,7 @@ export function usePdfReader(params: PdfReaderParams) {
     jumpToPageInput,
     applyZoom,
     fitWidth,
+    refitToStage,
     handleStageWheel,
   };
 }

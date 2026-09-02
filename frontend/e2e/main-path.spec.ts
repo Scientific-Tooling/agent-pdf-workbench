@@ -91,7 +91,6 @@ test("reader main path: open -> search -> annotate -> note -> export", async ({
   await expect(page.locator("#sessionInfo")).toHaveText(sessionId);
   await expect(page.locator("#textLayer span").first()).toBeVisible();
 
-  await page.locator("#searchToggleBtn").click();
   await page.locator("#searchInput").fill("attention");
   await page.locator("#searchBtn").click();
   await expect(page.locator("#searchInfo")).not.toContainText("0 matches");
@@ -287,7 +286,6 @@ test("opening another paper clears the previous document's search", async ({ pag
   await page.locator("#openPaperBtn").click();
   await expect(page.locator("#statusText")).toContainText("session ready");
 
-  await page.locator("#searchToggleBtn").click();
   await page.locator("#searchInput").fill("attention");
   await page.locator("#searchBtn").click();
   await expect(page.locator("#searchInfo")).not.toContainText("0 matches");
@@ -345,7 +343,6 @@ test("search marks its hits on the page, with the active hit distinguishable", a
   await page.locator("#openPaperBtn").click();
   await expect(page.locator("#statusText")).toContainText("session ready");
 
-  await page.locator("#searchToggleBtn").click();
   // "this" appears on both lines of the fixture, so one hit is active and one
   // is not — which is what makes the two treatments comparable.
   await page.locator("#searchInput").fill("this");
@@ -425,7 +422,6 @@ test("jumping to a hit below the fold brings it into view", async ({ page }) => 
     .toBeGreaterThan(0);
   await page.evaluate(() => document.querySelector("#pdfStage")?.scrollTo({ top: 0 }));
 
-  await page.locator("#searchToggleBtn").click();
   await page.locator("#searchInput").fill("notes");
   await page.locator("#searchBtn").click();
   await expect(page.locator("#searchInfo")).not.toContainText("0 matches");

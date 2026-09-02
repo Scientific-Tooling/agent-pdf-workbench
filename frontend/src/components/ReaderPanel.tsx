@@ -1,4 +1,4 @@
-import { useState, type RefObject } from "react";
+import type { RefObject } from "react";
 
 import type { PDFDocumentProxy } from "../types/pdfjs-types";
 
@@ -20,6 +20,7 @@ interface ReaderPanelProps {
   quickCommentInput: string;
   hasPendingSelection: boolean;
   searchInputRef: RefObject<HTMLInputElement | null>;
+  toolbarRef: RefObject<HTMLDivElement | null>;
   pdfStageRef: RefObject<HTMLDivElement | null>;
   pdfCanvasRef: RefObject<HTMLCanvasElement | null>;
   textLayerRef: RefObject<HTMLDivElement | null>;
@@ -28,6 +29,12 @@ interface ReaderPanelProps {
   onPageJumpInputChange: (value: string) => void;
   onSearchInputValueChange: (value: string) => void;
   onQuickCommentInputChange: (value: string) => void;
+  controlsOpen: boolean;
+  /** With no paper open the session panel stays put, so the toggle would lie. */
+  canToggleControls: boolean;
+  workspaceOpen: boolean;
+  onToggleControls: () => void;
+  onToggleWorkspace: () => void;
   onGoPrevPage: () => Promise<void>;
   onGoNextPage: () => Promise<void>;
   onJumpToPageInput: () => Promise<void>;
@@ -44,8 +51,6 @@ interface ReaderPanelProps {
 }
 
 export function ReaderPanel(props: ReaderPanelProps) {
-  const [searchExpanded, setSearchExpanded] = useState(false);
-
   const {
     pdfDoc,
     page,
@@ -64,6 +69,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
     quickCommentInput,
     hasPendingSelection,
     searchInputRef,
+    toolbarRef,
     pdfStageRef,
     pdfCanvasRef,
     textLayerRef,
@@ -72,6 +78,11 @@ export function ReaderPanel(props: ReaderPanelProps) {
     onPageJumpInputChange,
     onSearchInputValueChange,
     onQuickCommentInputChange,
+    controlsOpen,
+    canToggleControls,
+    workspaceOpen,
+    onToggleControls,
+    onToggleWorkspace,
     onGoPrevPage,
     onGoNextPage,
     onJumpToPageInput,
@@ -89,7 +100,26 @@ export function ReaderPanel(props: ReaderPanelProps) {
 
   return (
     <section className="panel reader">
-      <div className="toolbar reader-toolbar">
+      <div className="toolbar reader-toolbar" ref={toolbarRef}>
+        <button
+          id="toggleControlsBtn"
+          className="ghost-btn icon-btn"
+          title={
+            canToggleControls
+              ? controlsOpen
+                ? "Hide session panel"
+                : "Show session panel"
+              : "Open a paper to fold this panel away"
+          }
+          aria-expanded={controlsOpen}
+          disabled={!canToggleControls}
+          onClick={onToggleControls}
+        >
+          ☰
+        </button>
+
+        <div className="toolbar-divider" />
+
         {/* Page navigation */}
         <div className="row">
           <button
@@ -165,6 +195,89 @@ export function ReaderPanel(props: ReaderPanelProps) {
 
         <div className="toolbar-divider" />
 
+        <div className="toolbar-search">
+          <input
+            id="searchInput"
+            ref={searchInputRef}
+            placeholder="Find in document (f)"
+            aria-label="Find in document"
+            value={searchInputValue}
+            onChange={(event) => onSearchInputValueChange(event.target.value)}
+            onKeyDown={async (event) => {
+              if (event.key === "Escape") {
+                onSearchInputValueChange("");
+                await onRunSearch("");
+                return;
+              }
+              if (event.key !== "Enter") {
+                return;
+              }
+              event.preventDefault();
+              const query = searchInputValue.trim();
+              if (!query) {
+                await onRunSearch("");
+                return;
+              }
+              if (searchQuery === query && searchResultsCount > 0) {
+                if (event.shiftKey) {
+                  await onJumpToSearchResult(searchCursor - 1);
+                } else {
+                  await onJumpToSearchResult(searchCursor + 1);
+                }
+                return;
+              }
+              await onRunSearch(query);
+            }}
+          />
+          <button
+            id="searchBtn"
+            className="ghost-btn icon-btn"
+            title="Search"
+            aria-label="Search"
+            onClick={async () => onRunSearch(searchInputValue)}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </button>
+          {searchInfoText && (
+            <span id="searchInfo" className="search-info">
+              {searchInfoText}
+            </span>
+          )}
+          <button
+            id="searchPrevBtn"
+            className="ghost-btn icon-btn"
+            title="Previous match (Shift+Enter)"
+            aria-label="Previous match"
+            onClick={async () => onJumpToSearchResult(searchCursor - 1)}
+          >
+            ‹
+          </button>
+          <button
+            id="searchNextBtn"
+            className="ghost-btn icon-btn"
+            title="Next match (Enter)"
+            aria-label="Next match"
+            onClick={async () => onJumpToSearchResult(searchCursor + 1)}
+          >
+            ›
+          </button>
+        </div>
+
+        <div className="toolbar-divider" />
+
         {/* Zoom */}
         <div className="row">
           <button
@@ -200,113 +313,17 @@ export function ReaderPanel(props: ReaderPanelProps) {
             Fit Width
           </button>
         </div>
-      </div>
 
-      {/* Search area */}
-      {searchExpanded ? (
-        <div className="search-toolbar">
-          <input
-            id="searchInput"
-            ref={searchInputRef}
-            placeholder="Find…"
-            value={searchInputValue}
-            onChange={(event) => onSearchInputValueChange(event.target.value)}
-            onKeyDown={async (event) => {
-              if (event.key === "Escape") {
-                setSearchExpanded(false);
-                return;
-              }
-              if (event.key !== "Enter") {
-                return;
-              }
-              event.preventDefault();
-              const query = searchInputValue.trim();
-              if (!query) {
-                await onRunSearch("");
-                return;
-              }
-              if (searchQuery === query && searchResultsCount > 0) {
-                if (event.shiftKey) {
-                  await onJumpToSearchResult(searchCursor - 1);
-                } else {
-                  await onJumpToSearchResult(searchCursor + 1);
-                }
-                return;
-              }
-              await onRunSearch(query);
-            }}
-          />
-          <button id="searchBtn" title="Search" onClick={async () => onRunSearch(searchInputValue)}>
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-          </button>
-          <button
-            id="searchPrevBtn"
-            className="ghost-btn icon-btn"
-            title="Previous match (Shift+Enter)"
-            onClick={async () => onJumpToSearchResult(searchCursor - 1)}
-          >
-            ‹
-          </button>
-          <button
-            id="searchNextBtn"
-            className="ghost-btn icon-btn"
-            title="Next match (Enter)"
-            onClick={async () => onJumpToSearchResult(searchCursor + 1)}
-          >
-            ›
-          </button>
-          {searchInfoText && (
-            <span id="searchInfo" className="search-info">
-              {searchInfoText}
-            </span>
-          )}
-          <button
-            className="ghost-btn icon-btn"
-            title="Close search (Esc)"
-            onClick={() => setSearchExpanded(false)}
-          >
-            ✕
-          </button>
-        </div>
-      ) : (
         <button
-          id="searchToggleBtn"
-          className="search-toggle-btn"
-          title="Search"
-          onClick={() => {
-            setSearchExpanded(true);
-            setTimeout(() => searchInputRef.current?.focus(), 0);
-          }}
+          id="toggleWorkspaceBtn"
+          className="ghost-btn icon-btn toolbar-trailing"
+          title={workspaceOpen ? "Hide workspace panel" : "Show workspace panel"}
+          aria-expanded={workspaceOpen}
+          onClick={onToggleWorkspace}
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
+          ⧉
         </button>
-      )}
+      </div>
 
       {/* PDF Stage */}
       <div id="pdfStage" ref={pdfStageRef} className="pdf-stage">

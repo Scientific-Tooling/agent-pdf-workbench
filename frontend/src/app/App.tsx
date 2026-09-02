@@ -23,6 +23,7 @@ import { scrollIntoStageView } from "../ui/scroll-into-stage";
 import { upsertProgress, upsertRecentPaper } from "../services/storage";
 import { useWorkspaceSelection } from "./useWorkspaceSelection";
 import type { PaperSession } from "../types/types";
+import { usePanelLayout } from "./usePanelLayout";
 import { usePaperSession } from "./usePaperSession";
 import { usePdfReader } from "./usePdfReader";
 import type { OpenDocument } from "./usePdfReader";
@@ -39,7 +40,6 @@ export function App() {
   const [pendingSelection, setPendingSelection] = useState<PendingSelection | null>(null);
 
   const { toasts, showToast } = useToastStack();
-
   const sessionRef = useRef<PaperSession | null>(null);
   const {
     annotations,
@@ -69,6 +69,8 @@ export function App() {
   const annotationLayerRef = useRef<HTMLDivElement | null>(null);
   const quickAnnotatorRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const layoutRef = useRef<HTMLElement | null>(null);
 
   // The reader owns the document, page rendering, caches, zoom and outline;
   // App keeps session, annotation, note and export orchestration.
@@ -94,6 +96,7 @@ export function App() {
     jumpToPageInput,
     applyZoom,
     fitWidth,
+    refitToStage,
     handleStageWheel,
   } = usePdfReader({
     pdfStageRef,
@@ -131,6 +134,45 @@ export function App() {
   // Subscribe once and dispatch through a ref, so the listener is not swapped
   // on every render.
   const stageWheelRef = useSyncedRef(handleStageWheel);
+  const refitToStageRef = useSyncedRef(refitToStage);
+
+  useEffect(() => {
+    // The stage changes width both when the window resizes and when a panel
+    // folds, and a page that followed the width should keep following it.
+    const stage = pdfStageRef.current;
+    if (!stage || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    // A window drag fires this every frame; refitting re-renders the page, so
+    // settle first and render once.
+    let settle = 0;
+    const observer = new ResizeObserver(() => {
+      window.clearTimeout(settle);
+      settle = window.setTimeout(() => refitToStageRef.current(), 120);
+    });
+    observer.observe(stage);
+    return () => {
+      window.clearTimeout(settle);
+      observer.disconnect();
+    };
+  }, [refitToStageRef]);
+
+  useEffect(() => {
+    // Drawers open below the toolbar, and the toolbar wraps to a second row on
+    // narrow windows — so publish its real height rather than assuming one.
+    const toolbar = toolbarRef.current;
+    const layout = layoutRef.current;
+    if (!toolbar || !layout || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(([entry]) => {
+      // Round up: a fractional height leaves the drawer a pixel over the bar.
+      layout.style.setProperty("--toolbar-height", `${Math.ceil(entry.contentRect.height)}px`);
+    });
+    observer.observe(toolbar);
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     const stage = pdfStageRef.current;
     if (!stage) {
@@ -165,6 +207,15 @@ export function App() {
     showToast,
     onError: reportError,
   });
+
+  const {
+    tier,
+    controlsOpen,
+    workspaceOpen,
+    toggleControls,
+    toggleWorkspace,
+    closePanelsOverDocument,
+  } = usePanelLayout({ hasDocument: session !== null });
 
   const { selectedAnnotation, selectedNote, sortedAnnotations, sortedNotes } =
     useWorkspaceSelection({
@@ -401,7 +452,16 @@ export function App() {
 
   return (
     <>
-      <main className="layout">
+      <main
+        ref={layoutRef}
+        className="layout"
+        data-tier={tier}
+        data-controls={controlsOpen ? "open" : "closed"}
+        data-workspace={workspaceOpen ? "open" : "closed"}
+      >
+        {tier === "narrow" && (controlsOpen || workspaceOpen) && (
+          <div className="panel-backdrop" role="presentation" onClick={closePanelsOverDocument} />
+        )}
         <ControlPanel
           paperRef={paperRef}
           pdfUri={pdfUri}
@@ -426,6 +486,11 @@ export function App() {
         />
 
         <ReaderPanel
+          controlsOpen={controlsOpen}
+          canToggleControls={session !== null}
+          workspaceOpen={workspaceOpen}
+          onToggleControls={toggleControls}
+          onToggleWorkspace={toggleWorkspace}
           pdfDoc={pdfDoc}
           page={page}
           pageJumpInput={pageJumpInput}
@@ -443,6 +508,7 @@ export function App() {
           quickCommentInput={quickCommentInput}
           hasPendingSelection={Boolean(pendingSelection)}
           searchInputRef={searchInputRef}
+          toolbarRef={toolbarRef}
           pdfStageRef={pdfStageRef}
           pdfCanvasRef={pdfCanvasRef}
           textLayerRef={textLayerRef}

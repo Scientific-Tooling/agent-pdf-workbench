@@ -2,6 +2,7 @@ import type { ReadingProgress, RecentPaper } from "../types/types";
 
 const PROGRESS_KEY = "apw:reading-progress:v1";
 const RECENT_KEY = "apw:recent-papers:v1";
+const PANELS_KEY = "apw:panel-layout:v1";
 const MAX_RECENT = 12;
 
 function readJson<T>(key: string, fallback: T): T {
@@ -44,4 +45,28 @@ export function upsertRecentPaper(entry: RecentPaper): void {
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
     .slice(0, MAX_RECENT);
   writeJson(RECENT_KEY, next);
+}
+
+export interface StoredPanelLayout {
+  /** The width tier the choice was made at; a different tier starts from its own default. */
+  tier: string;
+  controlsOpen: boolean;
+  workspaceOpen: boolean;
+}
+
+export function getPanelLayout(): StoredPanelLayout | null {
+  const stored = readJson<StoredPanelLayout | null>(PANELS_KEY, null);
+  if (
+    !stored ||
+    typeof stored.tier !== "string" ||
+    typeof stored.controlsOpen !== "boolean" ||
+    typeof stored.workspaceOpen !== "boolean"
+  ) {
+    return null;
+  }
+  return stored;
+}
+
+export function savePanelLayout(layout: StoredPanelLayout): void {
+  writeJson(PANELS_KEY, layout);
 }

@@ -5,7 +5,7 @@ import { apiGet, apiPost } from "../services/api";
 import { getProgress, getRecentPapers } from "../services/storage";
 import type { PaperSession, RecentPaper } from "../types/types";
 import { paperRefFromUri } from "../utils/main-utils";
-import { DEFAULT_AGENT_ID, DEFAULT_USER_ID, DEFAULT_ZOOM } from "./app-types";
+import { DEFAULT_AGENT_ID, DEFAULT_USER_ID } from "./app-types";
 import type { ToastType } from "./app-types";
 import type { OpenDocument } from "./usePdfReader";
 
@@ -111,7 +111,9 @@ export function usePaperSession(params: PaperSessionParams) {
       paperRef: target.paper_ref,
       pdfUri: target.pdf_uri,
       page: options.preferredPage ?? progress?.lastPage ?? 1,
-      zoom: progress?.zoom ?? DEFAULT_ZOOM,
+      // No saved zoom means no decision to honour, so the page fits the width
+      // it actually has instead of a hard-coded 135%.
+      zoom: progress?.zoom,
       sessionId: target.id,
     });
     await loadWorkspaceFor(target.id);

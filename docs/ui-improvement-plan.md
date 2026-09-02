@@ -316,10 +316,53 @@ Also fixed in passing: ESLint's `no-undef` was firing on TypeScript DOM types
 (`ScrollToOptions`). It is off for TS sources now — `tsc` already resolves
 identifiers, so it could only produce false positives.
 
+## Batch 2 Outcome (2026-09-02)
+
+Done:
+
+- `usePanelLayout` introduces three width tiers (`wide` ≥ 1400, `medium` ≥ 1100,
+  `narrow` below). Panels fold rather than squeeze, and below `narrow` they open
+  as drawers over the reading surface with a dismissing backdrop. The choice is
+  persisted per tier, so a layout chosen on a wide screen cannot cramp a narrow
+  one.
+- Correction to the plan: the medium tier was going to fold the control panel to
+  a rail. Measured, it does not need to — at 1280px both panels still leave the
+  document ~700px, enough for a fit-width page. The first implementation folded
+  it anyway, which hid `Close Session` the moment a paper opened; four E2E tests
+  caught it by failing to click a button that had quietly become invisible. The
+  medium tier now narrows the panels rather than folding one, and a test asserts
+  that opening a paper never folds a panel out from under the reader.
+- The grid uses explicit `grid-template-areas`. Without them, a folded or
+  absolutely-positioned panel left its track empty and auto-placement slid the
+  reader into it — the reader column measured 1px wide.
+- The page now follows the stage width: it fits on open when the paper has no
+  saved zoom, refits when the window or a panel changes the stage (via
+  `ResizeObserver`), stops following the moment the reader zooms manually, and
+  starts again when they press Fit Width.
+- Search moved out of the floating overlay into the toolbar's dead middle, and
+  the overlay is gone. `f`, `/` and Ctrl/Cmd+F focus it; `f` previously did
+  nothing at all, because the input only existed while the overlay was open.
+- The toolbar wraps to a second row instead of squeezing controls out of
+  existence, and the drawers offset by its measured height rather than an
+  assumed one.
+- The session form stays open while no paper is loaded: with nothing to read,
+  the document has no claim on the space, and the only way in should not be
+  behind a toggle.
+
+Eight E2E tests in `frontend/e2e/responsive.spec.ts` cover it: the page fits its
+column at 1512/1280/1024/768 with no sideways scroll and `Fit Width` visible at
+each; refit-on-resize including the "stop following after a manual zoom" rule;
+panel folding surviving a reload; drawers opening over the document; and the
+three search shortcuts reaching the field.
+
+Deviation from the plan: no overflow menu was needed. Once the panels become
+drawers the toolbar gets the full window width, so wrapping to a second row
+keeps every control reachable — which is what the overflow menu was for.
+
 ## Tracking Checklist
 
 - [x] Batch 1: search hits visible and scrolled into view; toasts coalesced.
-- [ ] Batch 2: responsive breakpoints, collapsible panels, toolbar overflow.
+- [x] Batch 2: responsive breakpoints, collapsible panels, toolbar wrapping.
 - [ ] Batch 3: sidebar hierarchy, paths and empty states.
 - [ ] Batch 4: dark theme, accessible names, shortcuts, reduced motion.
 - [ ] Batch 5: continuous scrolling reader.

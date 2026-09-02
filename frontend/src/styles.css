@@ -269,10 +269,79 @@ button:not([class*="-btn"]):hover {
 
 .layout {
   display: grid;
-  grid-template-columns: 280px 1fr 340px;
+  grid-template-columns:
+    var(--controls-width, 280px)
+    minmax(0, 1fr)
+    var(--workspace-width, 340px);
+  /* Explicit areas: a panel that folds away or becomes a drawer leaves the
+     flow, and auto-placement would slide the reader into its empty track. */
+  grid-template-areas: "controls reader workspace";
   height: 100vh;
   overflow: hidden;
   background-color: var(--bg-app);
+  position: relative;
+}
+
+/* A folded panel gives its width back to the document rather than shrinking it. */
+.layout[data-controls="closed"] {
+  --controls-width: 0px;
+}
+
+.layout[data-workspace="closed"] {
+  --workspace-width: 0px;
+}
+
+.layout[data-controls="closed"] > .panel.controls,
+.layout[data-workspace="closed"] > .panel.workspace {
+  display: none;
+}
+
+/* Below the narrow breakpoint the panels stop competing for width entirely and
+   open over the reading surface instead. */
+.layout[data-tier="narrow"] {
+  --controls-width: 0px;
+  --workspace-width: 0px;
+}
+
+.layout[data-tier="narrow"] > .panel.controls,
+.layout[data-tier="narrow"] > .panel.workspace {
+  position: absolute;
+  /* Measured from the real toolbar, which wraps to two rows when space is tight. */
+  top: var(--toolbar-height, 52px);
+  bottom: 0;
+  z-index: 120;
+  width: min(340px, 88vw);
+  box-shadow: var(--shadow-popover);
+}
+
+.layout[data-tier="narrow"][data-controls="open"] > .panel.controls {
+  display: flex;
+  left: 0;
+}
+
+.layout[data-tier="narrow"][data-workspace="open"] > .panel.workspace {
+  display: flex;
+  right: 0;
+}
+
+.panel.controls {
+  grid-area: controls;
+}
+
+.panel.reader {
+  grid-area: reader;
+}
+
+.panel.workspace {
+  grid-area: workspace;
+}
+
+.panel-backdrop {
+  grid-area: reader;
+  position: absolute;
+  inset: var(--toolbar-height, 52px) 0 0 0;
+  z-index: 110;
+  background: rgba(15, 23, 42, 0.35);
 }
 
 .panel {
@@ -415,11 +484,13 @@ button:not([class*="-btn"]):hover {
   backdrop-filter: blur(20px) saturate(140%);
   -webkit-backdrop-filter: blur(20px) saturate(140%);
   border-bottom: 1px solid rgba(15, 23, 42, 0.05);
-  padding: 12px 24px;
+  padding: 10px 16px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 20px;
+  gap: 12px;
+  /* Wrapping costs a row of height; squeezing costs the reader a control. */
+  flex-wrap: wrap;
+  row-gap: 8px;
   z-index: 10;
   box-shadow: 0 4px 20px rgba(15, 23, 42, 0.03);
   position: sticky;
@@ -433,63 +504,39 @@ button:not([class*="-btn"]):hover {
 }
 
 .toolbar-divider {
+  flex: none;
   width: 1px;
   height: 28px;
   background-color: var(--border-default);
   margin: 0 8px;
 }
 
-.search-toggle-btn {
-  position: absolute;
-  top: 80px;
-  right: 32px;
-  z-index: 50;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: var(--radius-md);
-  padding: 10px 12px;
-  box-shadow: var(--shadow-md);
-  color: var(--text-secondary);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.search-toggle-btn:hover {
-  background: #ffffff;
-  color: var(--text-primary);
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-1px);
-}
-
-.search-toolbar {
-  position: absolute;
-  top: 80px;
-  right: 32px;
-  z-index: 50;
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: var(--radius-lg);
-  padding: 8px;
-  box-shadow: var(--shadow-popover);
+/* Search lives in the toolbar's middle, where there was dead space, instead of
+   floating over the page it is searching. */
+.toolbar-search {
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: 380px;
-  animation: popIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 150px;
+  max-width: 460px;
 }
 
-.search-toolbar input {
-  border: none;
-  background: transparent;
-  padding: 8px 10px;
-  box-shadow: none;
-  font-size: 0.95rem;
+.toolbar-search input {
+  flex: 1 1 auto;
+  /* Below this the field stops being a field; other groups give way first. */
+  min-width: 120px;
+  padding: 7px 12px;
+  font-size: 0.9rem;
 }
-.search-toolbar input:focus {
-  box-shadow: none;
+
+.toolbar-search .search-info {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.toolbar-trailing {
+  margin-left: auto;
 }
 
 /* ── PDF Stage ── */
@@ -915,8 +962,40 @@ button:not([class*="-btn"]):hover {
 
 /* ── Media Queries ── */
 
-@media (max-width: 1024px) {
+@media (max-width: 1400px) {
   .layout {
-    grid-template-columns: 260px 1fr 320px;
+    --controls-width: 260px;
+    --workspace-width: 320px;
+  }
+}
+
+/* Narrow bars drop only what is duplicated elsewhere: the zoom read-out (the
+   buttons stay), the "Go" button (Enter still works), and the page-count label
+   (the page input carries it). No control becomes unreachable. */
+@media (max-width: 1100px) {
+  .reader-toolbar {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  /* Search takes the second row rather than shrinking the zoom group away. */
+  .toolbar-search {
+    order: 10;
+    flex: 1 0 100%;
+    max-width: none;
+  }
+
+  .toolbar-search + .toolbar-divider {
+    display: none;
+  }
+
+  .reader-toolbar .toolbar-divider {
+    margin: 0 2px;
+  }
+
+  #zoomInfo,
+  #pageJumpBtn,
+  #pageInfo {
+    display: none;
   }
 }

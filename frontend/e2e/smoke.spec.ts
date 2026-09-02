@@ -9,5 +9,6 @@ test("app shell renders core controls", async ({ page }) => {
   await expect(page.locator("#closePaperBtn")).toBeVisible();
   await expect(page.locator("#sessionInfo")).toBeVisible();
   await expect(page.locator("#statusText")).toBeVisible();
-  await expect(page.locator("#searchToggleBtn")).toBeVisible();
+  await expect(page.locator("#searchInput")).toBeVisible();
+  await expect(page.locator("#fitWidthBtn")).toBeVisible();
 });

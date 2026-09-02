@@ -317,6 +317,7 @@ bootstrap.sh       # one-command local install
 - [docs/security-local.md](docs/security-local.md) — threat model and mitigations
 - [docs/release-checklist.md](docs/release-checklist.md) — release process
 - [docs/review-2026-09-remediation.md](docs/review-2026-09-remediation.md) — September 2026 review and what changed
+- [docs/ui-improvement-plan.md](docs/ui-improvement-plan.md) — batched plan for the viewer UI
 
 ## License
 

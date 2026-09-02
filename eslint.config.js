@@ -37,6 +37,10 @@ export default [
       // code actually makes.
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "error",
+      // TypeScript resolves identifiers itself, and its DOM lib types (e.g.
+      // ScrollToOptions) are not in ESLint's browser globals — leaving this on
+      // only produces false positives in .ts files.
+      "no-undef": "off",
     },
   },
   {

@@ -37,7 +37,6 @@ interface WorkspaceCommandsParams {
   getSelectionRectsAndQuote: (clearSelection?: boolean) => PendingSelection | null;
   renderPage: (page: number, emitPageChange: boolean) => Promise<void>;
   onHideQuickAnnotator: () => void;
-  setStatus: (message: string) => void;
   showToast: (message: string, type?: ToastType, durationMs?: number) => void;
 }
 
@@ -65,7 +64,6 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
     getSelectionRectsAndQuote,
     renderPage,
     onHideQuickAnnotator,
-    setStatus,
     showToast,
   } = params;
 
@@ -124,13 +122,12 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
   ): Promise<void> {
     const activeSession = sessionRef.current;
     if (!activeSession) {
-      setStatus("Open a paper session first.");
+      showToast("Open a paper first", "warning");
       return;
     }
     const selected = selectedInput ?? getSelectionRectsAndQuote();
     if (!selected) {
-      setStatus("Select text directly on the PDF text layer first.");
-      showToast("Select text on PDF before annotating.", "warning");
+      showToast("Select text on the PDF before annotating", "warning");
       return;
     }
 
@@ -172,7 +169,6 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
     }
     onHideQuickAnnotator();
     window.getSelection()?.removeAllRanges();
-    setStatus(`Annotation ${type} saved.`);
     showToast(type === "highlight" ? "Highlight saved" : "Underline saved", "success");
   }
 
@@ -246,13 +242,12 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
       selectedAnnotation.quote,
       sessionRef.current.id,
     );
-    setStatus("Annotation deleted.");
     showToast("Annotation deleted", "success");
   }
 
   async function saveNote(): Promise<void> {
     if (!sessionRef.current) {
-      setStatus("Open a paper session first.");
+      showToast("Open a paper first", "warning");
       return;
     }
     const now = nowIso();
@@ -277,7 +272,6 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
       null,
       sessionRef.current.id,
     );
-    setStatus("Note saved.");
     showToast("Note saved", "success");
   }
 
@@ -297,7 +291,6 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
       null,
       sessionRef.current.id,
     );
-    setStatus("Note deleted.");
     showToast("Note deleted", "success");
   }
 

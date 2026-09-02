@@ -19,6 +19,7 @@ import {
 } from "../services/exporters";
 import { clamp, errorMessage, nowIso } from "../utils/main-utils";
 import { applySearchHighlightsToCurrentPage as applySearchHighlightsToCurrentPageInDom } from "../ui/search-highlight";
+import { scrollIntoStageView } from "../ui/scroll-into-stage";
 import { upsertProgress, upsertRecentPaper } from "../services/storage";
 import { useWorkspaceSelection } from "./useWorkspaceSelection";
 import type { PaperSession } from "../types/types";
@@ -208,7 +209,6 @@ export function App() {
     getSelectionRectsAndQuote,
     renderPage,
     onHideQuickAnnotator: hideQuickAnnotator,
-    setStatus,
     showToast,
   });
 
@@ -322,6 +322,12 @@ export function App() {
       cursor: searchCursor,
       page,
     });
+
+    const currentHit = textLayer.querySelector<HTMLElement>(".current-hit");
+    const stage = pdfStageRef.current;
+    if (currentHit && stage) {
+      scrollIntoStageView(stage, currentHit);
+    }
   }, [page, searchCursor, searchQuery, searchResults]);
 
   useEffect(() => {
@@ -339,6 +345,14 @@ export function App() {
       pageTextCache: pageTextCacheRef.current,
       onSelectAnnotation: setSelectedAnnotationId,
     });
+
+    const selectedMark = annotationLayer.querySelector<HTMLElement>(".annotation-mark.selected");
+    const stage = pdfStageRef.current;
+    if (selectedMark && stage) {
+      // Only moves when the mark is off screen, so clicking a visible mark does
+      // not scroll the page under the reader's cursor.
+      scrollIntoStageView(stage, selectedMark);
+    }
   }, [annotations, page, pageTextCacheRef, selectedAnnotationId, setSelectedAnnotationId]);
 
   useGlobalWorkspaceShortcuts({

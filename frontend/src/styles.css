@@ -40,6 +40,11 @@
   --highlight-color: rgba(253, 224, 71, 0.4); /* yellow-300 */
   --underline-color: #ef4444; /* red-500 */
 
+  /* Search hits: a hue of their own, so a match never reads as an annotation */
+  --search-hit-color: rgba(56, 189, 248, 0.32); /* sky-400 */
+  --search-hit-current-color: rgba(14, 165, 233, 0.55); /* sky-500 */
+  --search-hit-current-border: #0284c7; /* sky-600 */
+
   /* ── Spacing & Layout ── */
   --header-height: 52px;
   --radius-sm: 8px;
@@ -536,6 +541,19 @@ button:not([class*="-btn"]):hover {
   cursor: text;
 }
 
+/* Search hits live on the transparent text layer, so they multiply over the
+   rendered page the same way annotation marks do. */
+.text-layer span.search-hit {
+  background-color: var(--search-hit-color);
+  border-radius: 2px;
+}
+
+.text-layer span.current-hit {
+  background-color: var(--search-hit-current-color);
+  box-shadow: 0 0 0 2px var(--search-hit-current-border);
+  border-radius: 2px;
+}
+
 .annotation-layer {
   pointer-events: none;
 }
@@ -747,11 +765,13 @@ button:not([class*="-btn"]):hover {
 
 .toast-stack {
   position: fixed;
-  bottom: 32px;
-  right: 32px;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  align-items: center;
+  gap: 10px;
   z-index: 200;
   pointer-events: none;
 }
@@ -770,8 +790,9 @@ button:not([class*="-btn"]):hover {
   display: flex;
   align-items: center;
   gap: 12px;
-  animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  min-width: 300px;
+  animation: toastRise 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  min-width: 260px;
+  justify-content: center;
 }
 
 .toast.success {
@@ -784,13 +805,13 @@ button:not([class*="-btn"]):hover {
   background: rgba(217, 119, 6, 0.95); /* amber-600 */
 }
 
-@keyframes slideIn {
+@keyframes toastRise {
   0% {
-    transform: translateX(120%) scale(0.95);
+    transform: translateY(10px) scale(0.98);
     opacity: 0;
   }
   100% {
-    transform: translateX(0) scale(1);
+    transform: translateY(0) scale(1);
     opacity: 1;
   }
 }

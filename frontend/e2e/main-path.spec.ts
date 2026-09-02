@@ -335,3 +335,114 @@ test("text layer exposes the contiguous offsets annotation anchors rely on", asy
     expectedStart = Number(span.end) + 1;
   }
 });
+
+test("search marks its hits on the page, with the active hit distinguishable", async ({ page }) => {
+  const pdfPath = ensureSamplePdf();
+
+  await page.goto("/");
+  await page.locator("#paperRef").fill("p_e2e_search_marks");
+  await page.locator("#pdfUri").fill(pdfPath);
+  await page.locator("#openPaperBtn").click();
+  await expect(page.locator("#statusText")).toContainText("session ready");
+
+  await page.locator("#searchToggleBtn").click();
+  // "this" appears on both lines of the fixture, so one hit is active and one
+  // is not — which is what makes the two treatments comparable.
+  await page.locator("#searchInput").fill("this");
+  await page.locator("#searchBtn").click();
+  await expect(page.locator("#searchInfo")).not.toContainText("0 matches");
+
+  // The classes were applied while the stylesheet defined neither, so the
+  // counter reported hits that were invisible on the page. Assert the painted
+  // result, not just the class name.
+  const marks = await page.evaluate(() => {
+    const isTransparent = (value: string) => value === "transparent" || /,\s*0\s*\)$/.test(value);
+    const current = document.querySelector("#textLayer span.current-hit");
+    const other = document.querySelector("#textLayer span.search-hit:not(.current-hit)");
+    const styleOf = (el: Element | null) => (el ? getComputedStyle(el) : null);
+    const currentStyle = styleOf(current);
+    const otherStyle = styleOf(other);
+    return {
+      hits: document.querySelectorAll("#textLayer span.search-hit").length,
+      currentCount: document.querySelectorAll("#textLayer span.current-hit").length,
+      currentPainted: currentStyle ? !isTransparent(currentStyle.backgroundColor) : false,
+      otherPainted: otherStyle ? !isTransparent(otherStyle.backgroundColor) : false,
+      currentBackground: currentStyle?.backgroundColor ?? null,
+      otherBackground: otherStyle?.backgroundColor ?? null,
+      currentHasEmphasis: currentStyle ? currentStyle.boxShadow !== "none" : false,
+    };
+  });
+
+  expect(marks.hits).toBeGreaterThan(1);
+  expect(marks.currentCount).toBe(1);
+  expect(marks.currentPainted).toBe(true);
+  expect(marks.otherPainted).toBe(true);
+  // The active hit has to be tellable apart from the rest at a glance.
+  expect(marks.currentBackground).not.toBe(marks.otherBackground);
+  expect(marks.currentHasEmphasis).toBe(true);
+});
+
+test("saving several times in a row does not stack toasts over the workspace", async ({ page }) => {
+  const pdfPath = ensureSamplePdf();
+
+  await page.goto("/");
+  await page.locator("#paperRef").fill("p_e2e_toasts");
+  await page.locator("#pdfUri").fill(pdfPath);
+  await page.locator("#openPaperBtn").click();
+  await expect(page.locator("#statusText")).toContainText("session ready");
+
+  await selectFirstTextSpan(page);
+  await page.locator("#highlightBtn").click();
+  await page.locator("#noteTitleInput").fill("First note");
+  await page.locator("#saveNoteBtn").click();
+  await page.locator("#noteTitleInput").fill("Second note");
+  await page.locator("#saveNoteBtn").click();
+
+  await expect(page.locator("#toastStack .toast")).toHaveCount(1);
+  await expect(page.locator("#toastStack .toast")).toHaveText("Note saved");
+});
+
+test("jumping to a hit below the fold brings it into view", async ({ page }) => {
+  const pdfPath = ensureSamplePdf();
+
+  await page.goto("/");
+  await page.locator("#paperRef").fill("p_e2e_scroll_to_hit");
+  await page.locator("#pdfUri").fill(pdfPath);
+  await page.locator("#openPaperBtn").click();
+  await expect(page.locator("#statusText")).toContainText("session ready");
+
+  // Zoom until the page is taller than the stage, so the last line is off screen.
+  for (let i = 0; i < 6; i += 1) {
+    await page.locator("#zoomInBtn").click();
+  }
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const stage = document.querySelector("#pdfStage");
+        return stage ? stage.scrollHeight - stage.clientHeight : 0;
+      }),
+    )
+    .toBeGreaterThan(0);
+  await page.evaluate(() => document.querySelector("#pdfStage")?.scrollTo({ top: 0 }));
+
+  await page.locator("#searchToggleBtn").click();
+  await page.locator("#searchInput").fill("notes");
+  await page.locator("#searchBtn").click();
+  await expect(page.locator("#searchInfo")).not.toContainText("0 matches");
+
+  // The reader should not have to hunt for the match the counter just claimed.
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const stage = document.querySelector("#pdfStage");
+        const hit = document.querySelector("#textLayer span.current-hit");
+        if (!stage || !hit) {
+          return false;
+        }
+        const s = stage.getBoundingClientRect();
+        const h = hit.getBoundingClientRect();
+        return h.top >= s.top && h.bottom <= s.bottom;
+      }),
+    )
+    .toBe(true);
+});

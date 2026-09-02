@@ -535,11 +535,9 @@ export function App() {
         <WorkspacePanel
           sortedAnnotations={sortedAnnotations}
           sortedNotes={sortedNotes}
-          selectedAnnotation={selectedAnnotation}
           selectedAnnotationId={selectedAnnotationId}
           annotationCommentInput={annotationCommentInput}
           annotationTagsInput={annotationTagsInput}
-          selectedNote={selectedNote}
           selectedNoteId={selectedNoteId}
           noteTitleInput={noteTitleInput}
           noteLinkedIdsInput={noteLinkedIdsInput}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clamp, paperRefFromUri, parseLinkedIds, parseTags } from "./main-utils";
+import { clamp, fileNameOf, paperRefFromUri, parseLinkedIds, parseTags } from "./main-utils";
 
 describe("paperRefFromUri", () => {
   it("names a paper after its file stem", () => {
@@ -36,5 +36,20 @@ describe("input parsing", () => {
     expect(clamp(5, 1, 3)).toBe(3);
     expect(clamp(-5, 1, 3)).toBe(1);
     expect(clamp(2, 1, 3)).toBe(2);
+  });
+});
+
+describe("fileNameOf", () => {
+  it("keeps the file, drops the path the sidebar has no room for", () => {
+    expect(fileNameOf("/home/reader/Papers/attention.pdf")).toBe("attention.pdf");
+    expect(fileNameOf("C:\\Papers\\transformer.pdf")).toBe("transformer.pdf");
+    expect(fileNameOf("https://arxiv.org/pdf/1706.03762v5.pdf?download=1")).toBe(
+      "1706.03762v5.pdf",
+    );
+  });
+
+  it("falls back to the whole value when there is no file part", () => {
+    expect(fileNameOf("paper.pdf")).toBe("paper.pdf");
+    expect(fileNameOf("")).toBe("");
   });
 });

@@ -39,3 +39,9 @@ export function paperRefFromUri(uri: string): string {
   const stem = base.replace(/\.pdf$/i, "").trim();
   return stem || "untitled-paper";
 }
+
+export function fileNameOf(uri: string): string {
+  // Sidebar rows show the file, not the six lines of absolute path it sits under.
+  const withoutQuery = uri.split(/[?#]/)[0];
+  return withoutQuery.split(/[\\/]/).pop() || uri;
+}

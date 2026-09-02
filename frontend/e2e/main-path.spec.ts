@@ -53,6 +53,16 @@ function ensureSamplePdf(): string {
   return filePath;
 }
 
+async function openPaperForm(page: import("@playwright/test").Page): Promise<void> {
+  // With a paper open the session form folds behind "Change paper"; with none
+  // it is the whole card.
+  const toggle = page.locator("#sessionDetailsToggle");
+  if ((await toggle.count()) > 0) {
+    await toggle.click();
+  }
+  await expect(page.locator("#paperRef")).toBeVisible();
+}
+
 async function selectFirstTextSpan(page: import("@playwright/test").Page): Promise<void> {
   await expect(page.locator("#textLayer span").first()).toBeVisible();
   await page.evaluate(() => {
@@ -237,6 +247,7 @@ test("annotations and notes survive reopening the same paper", async ({ page }) 
   await expect(page.locator("#sessionInfo")).toHaveText("—");
 
   // Reopen the same paper: a new session, but the reading output is the paper's.
+  await openPaperForm(page);
   await page.locator("#paperRef").fill(paperRef);
   await page.locator("#pdfUri").fill(pdfPath);
   await page.locator("#openPaperBtn").click();
@@ -292,6 +303,7 @@ test("opening another paper clears the previous document's search", async ({ pag
 
   // Both entry paths share one tail; a paper switch must not keep hits that
   // point into the document that was on screen before.
+  await openPaperForm(page);
   await page.locator("#paperRef").fill("p_e2e_search_reset_b");
   await page.locator("#pdfUri").fill(pdfPath);
   await page.locator("#openPaperBtn").click();

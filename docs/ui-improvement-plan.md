@@ -160,8 +160,12 @@ Tasks:
   the row's `title`, truncated to one line in the UI.
 - Do not render cards with nothing in them — an outline-less document should
   not cost a card that says "No outline".
-- Truncate annotation quotes on a word boundary with an ellipsis instead of
-  mid-word (`networks that include an encoder and a d`).
+- Correction: the "quote truncated mid-word" item was wrong. That cut came from
+  the review's own scripted selection of exactly 40 characters, not from the UI
+  — a reader's annotation shows exactly the text they selected, which is right.
+  The real gap is the opposite one: nothing clamps a long quote, so annotating a
+  full paragraph stretches the list item indefinitely. Clamp the preview in the
+  list and show the full quote for the selected annotation.
 - Show the annotation and note counts on the collapsed card headers so a
   collapsed panel still reports what it holds.
 
@@ -359,10 +363,41 @@ Deviation from the plan: no overflow menu was needed. Once the panels become
 drawers the toolbar gets the full window width, so wrapping to a second row
 keeps every control reachable — which is what the overflow menu was for.
 
+## Batch 3 Outcome (2026-09-02)
+
+Done:
+
+- The session card collapses once a paper is open: a status dot, the paper
+  reference (full path in its tooltip), the status line, a `Close` button, and a
+  "Change paper" disclosure holding the form and the raw session id. `Close`
+  stayed in the summary rather than moving behind the disclosure — it is a
+  common action and burying it would cost a click every time.
+- Recent papers are one line each: paper reference, then page and file name,
+  with the absolute path in the row's `title`. A row used to wrap over six
+  lines and fill the sidebar.
+- A document with no outline no longer costs a card that says "No outline".
+- Section headers carry counts of what they hold, replacing a pill that showed
+  the last six characters of the selected record's id.
+- Long quotes are clamped to three lines in the annotation list and shown in
+  full for the selected annotation.
+
+Two corrections to the review that produced this plan, both found by looking
+again rather than by testing:
+
+- The "quote truncated mid-word" finding was wrong. That cut came from the
+  review's own script selecting exactly 40 characters. What the UI does — show
+  precisely the text the reader selected — is right. The real gap was the
+  opposite: nothing clamped a long quote, so annotating a paragraph stretched
+  the list item indefinitely. That is what got fixed.
+- A screenshot appeared to show multi-line selection failing to annotate. It was
+  the screenshot script clearing the document selection by focusing an input
+  after selecting. Probing the real path showed four non-zero rects and a
+  working quick annotator. No defect.
+
 ## Tracking Checklist
 
 - [x] Batch 1: search hits visible and scrolled into view; toasts coalesced.
 - [x] Batch 2: responsive breakpoints, collapsible panels, toolbar wrapping.
-- [ ] Batch 3: sidebar hierarchy, paths and empty states.
+- [x] Batch 3: sidebar hierarchy, paths and empty states.
 - [ ] Batch 4: dark theme, accessible names, shortcuts, reduced motion.
 - [ ] Batch 5: continuous scrolling reader.

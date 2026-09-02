@@ -4,7 +4,7 @@ from dataclasses import asdict
 from pathlib import Path
 from uuid import uuid4
 
-from .store import EventStore, MAX_LIST_LIMIT
+from .store import MAX_LIST_LIMIT, EventStore
 
 
 class AgentPdfWorkbenchService:
@@ -74,24 +74,76 @@ class AgentPdfWorkbenchService:
         session = self._store.close_session(session_id)
         return asdict(session)
 
+    def get_session(self, *, session_id: str) -> dict:
+        """Return one session so a viewer or agent can attach to existing work."""
+        return asdict(self._store.get_session(session_id))
+
+    def list_sessions(
+        self,
+        *,
+        paper_ref: str | None = None,
+        open_only: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict:
+        """List sessions newest-first so agents can discover what is being read."""
+        sessions = self._store.list_sessions(
+            paper_ref=paper_ref,
+            open_only=open_only,
+            limit=limit,
+            offset=offset,
+        )
+        has_more = False
+        next_offset = offset + len(sessions)
+        if len(sessions) == limit:
+            has_more = bool(
+                self._store.list_sessions(
+                    paper_ref=paper_ref,
+                    open_only=open_only,
+                    limit=1,
+                    offset=next_offset,
+                )
+            )
+        return {
+            "count": len(sessions),
+            "sessions": [asdict(session) for session in sessions],
+            "offset": offset,
+            "has_more": has_more,
+            "next_offset": next_offset if has_more else None,
+        }
+
     def upsert_annotation(self, *, session_id: str, annotation: dict) -> dict:
         record = self._store.upsert_annotation(session_id=session_id, annotation=annotation)
         return asdict(record)
 
-    def list_annotations(self, *, session_id: str, limit: int = 100, offset: int = 0) -> dict:
-        records = self._store.list_annotations(session_id=session_id, limit=limit, offset=offset)
+    def list_annotations(
+        self,
+        *,
+        session_id: str | None = None,
+        paper_ref: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict:
+        records = self._store.list_annotations(
+            session_id=session_id,
+            paper_ref=paper_ref,
+            limit=limit,
+            offset=offset,
+        )
         has_more = False
         next_offset = offset + len(records)
         if len(records) == limit:
             has_more = bool(
                 self._store.list_annotations(
                     session_id=session_id,
+                    paper_ref=paper_ref,
                     limit=1,
                     offset=next_offset,
                 )
             )
         return {
             "session_id": session_id,
+            "paper_ref": paper_ref or (records[0].paper_ref if records else self._paper_ref_for(session_id)),
             "count": len(records),
             "annotations": [asdict(record) for record in records],
             "offset": offset,
@@ -107,20 +159,34 @@ class AgentPdfWorkbenchService:
         record = self._store.upsert_note(session_id=session_id, note=note)
         return asdict(record)
 
-    def list_notes(self, *, session_id: str, limit: int = 100, offset: int = 0) -> dict:
-        records = self._store.list_notes(session_id=session_id, limit=limit, offset=offset)
+    def list_notes(
+        self,
+        *,
+        session_id: str | None = None,
+        paper_ref: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict:
+        records = self._store.list_notes(
+            session_id=session_id,
+            paper_ref=paper_ref,
+            limit=limit,
+            offset=offset,
+        )
         has_more = False
         next_offset = offset + len(records)
         if len(records) == limit:
             has_more = bool(
                 self._store.list_notes(
                     session_id=session_id,
+                    paper_ref=paper_ref,
                     limit=1,
                     offset=next_offset,
                 )
             )
         return {
             "session_id": session_id,
+            "paper_ref": paper_ref or (records[0].paper_ref if records else self._paper_ref_for(session_id)),
             "count": len(records),
             "notes": [asdict(record) for record in records],
             "offset": offset,
@@ -145,27 +211,58 @@ class AgentPdfWorkbenchService:
         return self._store.checkpoint()
 
     def export_workspace(self) -> dict:
-        """Export all sessions with their events, annotations, and notes as a dict.
+        """Export every paper with its annotations, notes, sessions, and events.
 
-        Intended for human-readable JSON backup and offline analysis.
-        The structure is:
-        ``{"sessions": [{"session": {...}, "events": [...], "annotations": [...], "notes": [...]}]}``
+        The export is paper-centric because annotations and notes belong to the
+        paper: a paper read across five sessions has one set of annotations and
+        five event streams.  Structure::
+
+            {"papers": [{"paper_ref", "annotations", "notes",
+                         "sessions": [{"session", "events"}]}]}
         """
-        sessions = self._store.list_all_sessions()
-        result = []
-        for session in sessions:
-            events = self._list_all_events(session.id)
-            annotations = self._list_all_annotations(session.id)
-            notes = self._list_all_notes(session.id)
-            result.append(
+        papers: list[dict] = []
+        session_count = 0
+        for paper_ref in self._store.list_paper_refs():
+            sessions = []
+            for session in self._list_all_sessions_for_paper(paper_ref):
+                sessions.append(
+                    {
+                        "session": asdict(session),
+                        "events": [asdict(e) for e in self._list_all_events(session.id)],
+                    }
+                )
+            session_count += len(sessions)
+            papers.append(
                 {
-                    "session": asdict(session),
-                    "events": [asdict(e) for e in events],
-                    "annotations": [asdict(a) for a in annotations],
-                    "notes": [asdict(n) for n in notes],
+                    "paper_ref": paper_ref,
+                    "annotations": [asdict(a) for a in self._list_all_annotations(paper_ref)],
+                    "notes": [asdict(n) for n in self._list_all_notes(paper_ref)],
+                    "sessions": sessions,
                 }
             )
-        return {"sessions": result, "session_count": len(result)}
+        return {"papers": papers, "paper_count": len(papers), "session_count": session_count}
+
+    def _paper_ref_for(self, session_id: str | None) -> str | None:
+        if session_id is None:
+            return None
+        return self._store.get_session(session_id).paper_ref
+
+    def _list_all_sessions_for_paper(self, paper_ref: str) -> list:
+        sessions = []
+        offset = 0
+        while True:
+            batch = self._store.list_sessions(
+                paper_ref=paper_ref,
+                limit=MAX_LIST_LIMIT,
+                offset=offset,
+            )
+            if not batch:
+                break
+            sessions.extend(batch)
+            offset += len(batch)
+            if len(batch) < MAX_LIST_LIMIT:
+                break
+        return sessions
 
     def _list_all_events(self, session_id: str) -> list:
         events = []
@@ -184,12 +281,12 @@ class AgentPdfWorkbenchService:
                 break
         return events
 
-    def _list_all_annotations(self, session_id: str) -> list:
+    def _list_all_annotations(self, paper_ref: str) -> list:
         records = []
         offset = 0
         while True:
             batch = self._store.list_annotations(
-                session_id=session_id,
+                paper_ref=paper_ref,
                 limit=MAX_LIST_LIMIT,
                 offset=offset,
             )
@@ -201,12 +298,12 @@ class AgentPdfWorkbenchService:
                 break
         return records
 
-    def _list_all_notes(self, session_id: str) -> list:
+    def _list_all_notes(self, paper_ref: str) -> list:
         records = []
         offset = 0
         while True:
             batch = self._store.list_notes(
-                session_id=session_id,
+                paper_ref=paper_ref,
                 limit=MAX_LIST_LIMIT,
                 offset=offset,
             )

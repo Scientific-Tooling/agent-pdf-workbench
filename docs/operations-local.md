@@ -102,7 +102,9 @@ apw-dev --db-path ~/.apw/events.db export \
   --output ~/.apw/backups/workspace-$(date +%F).json
 ```
 
-Exports all sessions, events, annotations, and notes as a single JSON file.
+Exports every paper with its annotations, notes, sessions, and events as a
+single JSON file. The top level is `{"papers": [...], "paper_count", "session_count"}`;
+each paper carries one annotation/note set and one entry per reading session.
 Useful for offline analysis or archiving.
 
 ### Verify the backup
@@ -285,6 +287,17 @@ Run:
 ```bash
 npm run build:frontend
 ```
+
+### Schema versions
+
+| Version | Change | Notes |
+|---|---|---|
+| 1 | Initial schema | sessions, action events, annotations, notes |
+| 2 | Annotations and notes keyed by `paper_ref` | Applied automatically on first connection. Rows are merged per paper, newest `updated_at` winning when the same id existed in several sessions. Reading output from earlier sessions becomes visible again when the paper is reopened. |
+
+Migrations are forward-only. Take a backup before upgrading (see
+[Backup](#backup)); to go back, restore that backup rather than downgrading a
+migrated database.
 
 ### Schema version mismatch
 

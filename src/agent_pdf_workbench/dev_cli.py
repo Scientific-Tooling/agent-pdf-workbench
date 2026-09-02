@@ -44,6 +44,16 @@ def build_parser() -> argparse.ArgumentParser:
     list_parser.add_argument("--limit", type=int, default=100)
     list_parser.set_defaults(handler=handle_list_actions)
 
+    sessions_parser = subparsers.add_parser(
+        "list-sessions",
+        help="List reading sessions newest-first (use --open-only to find an active one).",
+    )
+    sessions_parser.add_argument("--paper-ref")
+    sessions_parser.add_argument("--open-only", action="store_true")
+    sessions_parser.add_argument("--limit", type=int, default=100)
+    sessions_parser.add_argument("--offset", type=int, default=0)
+    sessions_parser.set_defaults(handler=handle_list_sessions)
+
     close_parser = subparsers.add_parser("close-paper", help="Close a paper reading session.")
     close_parser.add_argument("--session-id", required=True)
     close_parser.set_defaults(handler=handle_close_paper)
@@ -112,6 +122,17 @@ def handle_record_action(args: argparse.Namespace) -> int:
         selection_text=args.selection_text,
         payload=json.loads(args.payload_json),
         source=args.source,
+    )
+    print(json.dumps(payload, indent=2))
+    return 0
+
+
+def handle_list_sessions(args: argparse.Namespace) -> int:
+    payload = _service(args).list_sessions(
+        paper_ref=args.paper_ref,
+        open_only=args.open_only,
+        limit=args.limit,
+        offset=args.offset,
     )
     print(json.dumps(payload, indent=2))
     return 0

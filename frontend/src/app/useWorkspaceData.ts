@@ -3,7 +3,8 @@ import type { MutableRefObject } from "react";
 
 import { useSyncedRef } from "../hooks/useSyncedRef";
 import { asAnnotationRecord, asNoteRecord } from "../pdf/main-parsers";
-import { apiGet } from "../services/api";
+import { apiGet, apiPost } from "../services/api";
+import { errorMessage } from "../utils/main-utils";
 import type {
   ActionEvent,
   Annotation,
@@ -16,10 +17,13 @@ import type {
 
 interface WorkspaceDataParams {
   sessionRef: MutableRefObject<PaperSession | null>;
+  /** Reports a failed write; the caller decides how to surface it. */
+  onError: (message: string) => void;
 }
 
 export function useWorkspaceData(params: WorkspaceDataParams) {
   const { sessionRef } = params;
+  const onErrorRef = useSyncedRef(params.onError);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -38,6 +42,40 @@ export function useWorkspaceData(params: WorkspaceDataParams) {
     setEvents([]);
   }
 
+  /**
+   * Append one action event and fold the server's copy into the timeline.
+   *
+   * Returns null when there is no session, or when the write failed — action
+   * events are telemetry, so a failure reports and never interrupts the user.
+   */
+  async function recordAction(
+    eventType: string,
+    payload: Record<string, unknown> = {},
+    eventPage: number | null = null,
+    selectionText: string | null = null,
+    sessionIdOverride?: string,
+  ): Promise<ActionEvent | null> {
+    const sid = sessionIdOverride ?? sessionRef.current?.id;
+    if (!sid) {
+      return null;
+    }
+    try {
+      const event = await apiPost<ActionEvent>("/api/record-action", {
+        session_id: sid,
+        event_type: eventType,
+        page: eventPage,
+        selection_text: selectionText,
+        payload,
+        source: "viewer",
+      });
+      upsertEvent(event);
+      return event;
+    } catch (error) {
+      onErrorRef.current(`record_action failed: ${errorMessage(error)}`);
+      return null;
+    }
+  }
+
   function upsertEvent(event: ActionEvent): void {
     setEvents((prev) => {
       const byId = new Map(prev.map((item) => [item.id, item]));
@@ -46,7 +84,9 @@ export function useWorkspaceData(params: WorkspaceDataParams) {
     });
   }
 
-  async function refreshEvents(options: { sessionId?: string; incremental?: boolean } = {}): Promise<void> {
+  async function refreshEvents(
+    options: { sessionId?: string; incremental?: boolean } = {},
+  ): Promise<void> {
     const sid = options.sessionId ?? sessionRef.current?.id;
     if (!sid) {
       return;
@@ -55,7 +95,8 @@ export function useWorkspaceData(params: WorkspaceDataParams) {
     let afterId = incremental ? eventsRef.current[eventsRef.current.length - 1]?.id : undefined;
     const fetched: ActionEvent[] = [];
     while (true) {
-      const afterQuery = afterId !== undefined ? `&after_id=${encodeURIComponent(String(afterId))}` : "";
+      const afterQuery =
+        afterId !== undefined ? `&after_id=${encodeURIComponent(String(afterId))}` : "";
       const data = await apiGet<ListActionsResponse>(
         `/api/list-actions?session_id=${encodeURIComponent(sid)}&limit=1000${afterQuery}`,
       );
@@ -177,6 +218,14 @@ export function useWorkspaceData(params: WorkspaceDataParams) {
     }
   }
 
+  /** Load everything this session shows: its event stream and the paper's work. */
+  async function loadFor(sessionId: string): Promise<void> {
+    await Promise.all([
+      refreshEvents({ sessionId, incremental: false }),
+      refreshDomainState(sessionId),
+    ]);
+  }
+
   function upsertAnnotation(annotation: Annotation): void {
     setAnnotations((prev) => {
       const next = prev.filter((item) => item.id !== annotation.id);
@@ -219,6 +268,8 @@ export function useWorkspaceData(params: WorkspaceDataParams) {
     eventsRef,
     clearWorkspaceData,
     upsertEvent,
+    recordAction,
+    loadFor,
     refreshEvents,
     refreshAnnotations,
     refreshNotes,

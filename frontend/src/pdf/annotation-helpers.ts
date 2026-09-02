@@ -27,7 +27,10 @@ function normalizedText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function resolveAnchorOffsets(anchor: TextAnchor, pageText: string): { start: number; end: number } | null {
+export function resolveAnchorOffsets(
+  anchor: TextAnchor,
+  pageText: string,
+): { start: number; end: number } | null {
   const hasRange = typeof anchor.start === "number" && typeof anchor.end === "number";
   if (hasRange) {
     const start = Number(anchor.start);
@@ -193,7 +196,7 @@ function absoluteOffsetFromRangeBoundary(container: Node, offset: number): numbe
   }
 
   const text = span.textContent ?? "";
-  let localOffset = 0;
+  let localOffset: number;
   if (container.nodeType === Node.TEXT_NODE) {
     const nodeText = (container as Text).data;
     localOffset = clamp(offset, 0, nodeText.length);
@@ -211,7 +214,7 @@ function absoluteOffsetFromRangeBoundary(container: Node, offset: number): numbe
   return spanStart + clamp(localOffset, 0, text.length);
 }
 
-function buildAnchor(
+export function buildAnchor(
   quote: string,
   start: number | null,
   end: number | null,

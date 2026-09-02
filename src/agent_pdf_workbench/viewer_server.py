@@ -6,19 +6,17 @@ import logging
 import mimetypes
 import os
 import signal
-import socket
 import sys
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.error import HTTPError
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
 
 from .service import AgentPdfWorkbenchService
-from .store import SCHEMA_VERSION
+from .store import SCHEMA_VERSION, FieldValidationError
 
 try:
     from importlib.metadata import version as _pkg_version
@@ -45,6 +43,11 @@ _SECURITY_HEADERS = [
 
 # Known-safe local bind addresses.
 _LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+# Accepted request media types for POST bodies.  Requiring JSON is what stops a
+# cross-origin "simple request" (text/plain, no preflight) from reaching a
+# write handler.
+_JSON_CONTENT_TYPE = "application/json"
 
 # Structured audit logger.  Emits INFO-level JSON lines when logging is configured.
 _audit_logger = logging.getLogger("apw.audit")
@@ -117,7 +120,40 @@ def _error_response(
     _json_response(handler, payload, status=status)
 
 
+def _query_flag(query: dict, name: str) -> bool:
+    raw = query.get(name, [None])[0]
+    if raw is None:
+        return False
+    return raw.strip().lower() in {"1", "true", "yes", "on", ""}
+
+
+def _handle_validation_error(handler: BaseHTTPRequestHandler, exc: ValueError) -> None:
+    """Answer a validation failure, naming the offending field when known."""
+    if isinstance(exc, _MissingFieldError):
+        _error_response(
+            handler,
+            str(exc),
+            code="MISSING_FIELD",
+            status=HTTPStatus.BAD_REQUEST,
+            details={"field": exc.field},
+        )
+        return
+    details = {"field": exc.field} if isinstance(exc, FieldValidationError) else _validation_details(str(exc))
+    _error_response(
+        handler,
+        str(exc),
+        code="VALIDATION_ERROR",
+        status=HTTPStatus.BAD_REQUEST,
+        details=details,
+    )
+
+
 def _validation_details(message: str) -> dict:
+    """Best-effort field name for errors that do not carry one.
+
+    Validators raise ``FieldValidationError`` with an explicit field; this is the
+    fallback for plain ``ValueError`` messages raised elsewhere.
+    """
     field = message.split(" must be ", 1)[0]
     field = field.split(" is required", 1)[0]
     field = field.split(" contains ", 1)[0]
@@ -135,6 +171,66 @@ def _text_response(handler: BaseHTTPRequestHandler, message: str, status: int) -
     _add_security_headers(handler)
     handler.end_headers()
     _write_response_body(handler, body)
+
+
+def allowed_host_names(host: str | None = None) -> frozenset[str]:
+    """Host names this server answers to, ignoring the port.
+
+    An unvalidated Host header is what makes DNS rebinding work: a page on
+    attacker.example whose DNS flips to 127.0.0.1 becomes same-origin with this
+    server and can then read every response, including local files served by
+    /api/pdf.  Answering only to loopback names closes that path.  The port is
+    not part of the check — a request that reached us already arrived on our
+    port.
+    """
+    names = {"127.0.0.1", "localhost", "::1"}
+    if host:
+        names.add(host)
+    return frozenset(name.strip("[]").lower() for name in names)
+
+
+def _hostname_of(netloc: str) -> str:
+    """Return the lowercase hostname in a Host header or origin authority."""
+    value = netloc.strip().lower()
+    if value.startswith("["):
+        closing = value.find("]")
+        if closing != -1:
+            return value[1:closing]
+        return value.strip("[]")
+    if value.count(":") > 1:
+        # Bare IPv6 literal without brackets.
+        return value
+    return value.split(":", 1)[0]
+
+
+def _host_header_allowed(host_header: str | None, allowed: frozenset[str]) -> bool:
+    if host_header is None:
+        # HTTP/1.0 clients may omit Host; browsers never do.
+        return True
+    return _hostname_of(host_header) in allowed
+
+
+def _origin_allowed(origin: str | None, allowed: frozenset[str]) -> bool:
+    """Reject requests carrying a foreign Origin.
+
+    Same-origin policy stops another site from *reading* our responses, but it
+    never stopped it from *sending* one.  The viewer's own fetches carry our
+    origin, so anything else is cross-site and gets refused.
+    """
+    if origin is None:
+        return True
+    if origin == "null":
+        return False
+    parsed = urlparse(origin)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return False
+    return _hostname_of(parsed.netloc) in allowed
+
+
+def _is_json_content_type(content_type: str | None) -> bool:
+    if not content_type:
+        return False
+    return content_type.split(";", 1)[0].strip().lower() == _JSON_CONTENT_TYPE
 
 
 def _is_within_directory(path: Path, root: Path) -> bool:
@@ -284,12 +380,16 @@ def _create_handler(
     allow_remote_pdf: bool = False,
     pdf_root: Path | None = None,
     max_pdf_bytes: int = _DEFAULT_MAX_PDF_BYTES,
+    allowed_hosts: frozenset[str] | None = None,
 ):
     web_root = WEB_DIR.resolve()
     resolved_pdf_root = pdf_root.resolve() if pdf_root is not None else None
+    host_allowlist = allowed_hosts if allowed_hosts is not None else allowed_host_names()
 
     class ViewerRequestHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
+            if not self._request_origin_is_local():
+                return
             parsed = urlparse(self.path)
             path = parsed.path
             query = parse_qs(parsed.query)
@@ -325,51 +425,83 @@ def _create_handler(
                     limit = int(limit_raw) if limit_raw is not None else 100
                     payload = service.list_actions(session_id=session_id, after_id=after_id, limit=limit)
                 except ValueError as exc:
-                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
+                    _handle_validation_error(self, exc)
+                    return
+                _json_response(self, payload)
+                return
+
+            if path == "/api/sessions":
+                paper_ref = query.get("paper_ref", [None])[0]
+                open_only = _query_flag(query, "open_only")
+                limit_raw = query.get("limit", [100])[0]
+                offset_raw = query.get("offset", [0])[0]
+                try:
+                    limit = int(limit_raw) if limit_raw is not None else 100
+                    offset = int(offset_raw) if offset_raw is not None else 0
+                    payload = service.list_sessions(
+                        paper_ref=paper_ref,
+                        open_only=open_only,
+                        limit=limit,
+                        offset=offset,
+                    )
+                except ValueError as exc:
+                    _handle_validation_error(self, exc)
+                    return
+                _json_response(self, payload)
+                return
+
+            if path == "/api/session":
+                session_id = query.get("session_id", [None])[0]
+                if not session_id:
+                    _error_response(
+                        self,
+                        "session_id is required",
+                        code="MISSING_FIELD",
+                        status=HTTPStatus.BAD_REQUEST,
+                        details={"field": "session_id"},
+                    )
+                    return
+                try:
+                    payload = service.get_session(session_id=session_id)
+                except ValueError as exc:
+                    _error_response(
+                        self,
+                        str(exc),
+                        code="NOT_FOUND",
+                        status=HTTPStatus.NOT_FOUND,
+                    )
                     return
                 _json_response(self, payload)
                 return
 
             if path == "/api/annotations":
-                session_id = query.get("session_id", [None])[0]
-                if not session_id:
-                    _error_response(
-                        self,
-                        "session_id is required",
-                        code="MISSING_FIELD",
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
+                scope = self._read_scope(query)
+                if scope is None:
                     return
                 limit_raw = query.get("limit", [1000])[0]
                 offset_raw = query.get("offset", [0])[0]
                 try:
                     limit = int(limit_raw) if limit_raw is not None else 1000
                     offset = int(offset_raw) if offset_raw is not None else 0
-                    payload = service.list_annotations(session_id=session_id, limit=limit, offset=offset)
+                    payload = service.list_annotations(**scope, limit=limit, offset=offset)
                 except ValueError as exc:
-                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
+                    _handle_validation_error(self, exc)
                     return
                 _json_response(self, payload)
                 return
 
             if path == "/api/notes":
-                session_id = query.get("session_id", [None])[0]
-                if not session_id:
-                    _error_response(
-                        self,
-                        "session_id is required",
-                        code="MISSING_FIELD",
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
+                scope = self._read_scope(query)
+                if scope is None:
                     return
                 limit_raw = query.get("limit", [1000])[0]
                 offset_raw = query.get("offset", [0])[0]
                 try:
                     limit = int(limit_raw) if limit_raw is not None else 1000
                     offset = int(offset_raw) if offset_raw is not None else 0
-                    payload = service.list_notes(session_id=session_id, limit=limit, offset=offset)
+                    payload = service.list_notes(**scope, limit=limit, offset=offset)
                 except ValueError as exc:
-                    _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
+                    _handle_validation_error(self, exc)
                     return
                 _json_response(self, payload)
                 return
@@ -408,8 +540,19 @@ def _create_handler(
             _text_response(self, "Not Found", HTTPStatus.NOT_FOUND)
 
         def do_POST(self) -> None:  # noqa: N802
+            if not self._request_origin_is_local():
+                return
             parsed = urlparse(self.path)
             path = parsed.path
+
+            if not _is_json_content_type(self.headers.get("Content-Type")):
+                _error_response(
+                    self,
+                    "Content-Type must be application/json",
+                    code="UNSUPPORTED_MEDIA_TYPE",
+                    status=HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                )
+                return
 
             try:
                 body = self._read_json_body()
@@ -418,22 +561,7 @@ def _create_handler(
                 return
 
             def _handle_post_validation_error(exc: ValueError) -> None:
-                if isinstance(exc, _MissingFieldError):
-                    _error_response(
-                        self,
-                        str(exc),
-                        code="MISSING_FIELD",
-                        status=HTTPStatus.BAD_REQUEST,
-                        details={"field": exc.field},
-                    )
-                else:
-                    _error_response(
-                        self,
-                        str(exc),
-                        code="VALIDATION_ERROR",
-                        status=HTTPStatus.BAD_REQUEST,
-                        details=_validation_details(str(exc)),
-                    )
+                _handle_validation_error(self, exc)
 
             if path == "/api/open-paper":
                 try:
@@ -570,6 +698,56 @@ def _create_handler(
             # Keep local dev output clean.
             return
 
+        def _read_scope(self, query: dict) -> dict | None:
+            """Resolve a read scope from ?session_id= or ?paper_ref=.
+
+            Annotations and notes belong to the paper, so either handle names the
+            same set.  Returns None after answering when neither is usable.
+            """
+            session_id = query.get("session_id", [None])[0]
+            paper_ref = query.get("paper_ref", [None])[0]
+            if bool(session_id) == bool(paper_ref):
+                _error_response(
+                    self,
+                    "exactly one of session_id or paper_ref is required",
+                    code="MISSING_FIELD",
+                    status=HTTPStatus.BAD_REQUEST,
+                    details={"field": "session_id"},
+                )
+                return None
+            if session_id:
+                return {"session_id": session_id}
+            return {"paper_ref": paper_ref}
+
+        def _request_origin_is_local(self) -> bool:
+            """Refuse requests that did not come from this machine's viewer.
+
+            Returns True when the request may proceed; otherwise it has already
+            answered with 403 and the caller must return.
+            """
+            # Log the route only: a blocked /api/pdf request carries a file path
+            # in its query string, and audit logs never take content.
+            route = urlparse(self.path).path
+            if not _host_header_allowed(self.headers.get("Host"), host_allowlist):
+                _audit("blocked_request", reason="host", path=route)
+                _error_response(
+                    self,
+                    "Host header is not a local address for this server",
+                    code="FORBIDDEN",
+                    status=HTTPStatus.FORBIDDEN,
+                )
+                return False
+            if not _origin_allowed(self.headers.get("Origin"), host_allowlist):
+                _audit("blocked_request", reason="origin", path=route)
+                _error_response(
+                    self,
+                    "cross-origin requests are not accepted",
+                    code="FORBIDDEN",
+                    status=HTTPStatus.FORBIDDEN,
+                )
+                return False
+            return True
+
         def _read_json_body(self) -> dict:
             length_raw = self.headers.get("Content-Length")
             if not length_raw:
@@ -632,7 +810,7 @@ def _create_handler(
                         status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
                     )
                     return
-                except (URLError, socket.timeout, TimeoutError, OSError) as exc:
+                except (URLError, TimeoutError, OSError) as exc:
                     _error_response(
                         self,
                         f"remote PDF fetch failed: {exc}",
@@ -752,6 +930,13 @@ def main() -> int:
             file=sys.stderr,
         )
 
+    if args.pdf_root is None:
+        print(
+            "WARNING [apw] --pdf-root is not set: /api/pdf can read any file this OS user can read. "
+            "Pass --pdf-root ~/Papers (or APW_PDF_ROOT) to restrict it.",
+            file=sys.stderr,
+        )
+
     _check_web_assets()
 
     service = AgentPdfWorkbenchService(db_path=args.db_path)
@@ -762,6 +947,7 @@ def main() -> int:
             allow_remote_pdf=args.allow_remote_pdf,
             pdf_root=args.pdf_root,
             max_pdf_bytes=args.max_pdf_bytes,
+            allowed_hosts=allowed_host_names(args.host),
         ),
     )
 

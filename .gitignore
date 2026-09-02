@@ -11,3 +11,12 @@ test-results/
 screenshots/
 screenshots-*
 screenshot*.png
+
+# unrelated local databases
+data/
+*.sqlite3
+
+# python build outputs
+build/
+dist/
+*.egg-info/

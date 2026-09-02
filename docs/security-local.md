@@ -27,7 +27,8 @@ It does not apply to any internet-facing or multi-user deployment.
 
 | Threat | Mitigation |
 |---|---|
-| Malicious web page reading the viewer API via cross-origin request | Server binds to `127.0.0.1` only; browsers enforce same-origin policy for cross-origin requests to `127.0.0.1` |
+| Malicious web page writing to the viewer API (CSRF) | Requests carrying a foreign or opaque `Origin` are refused with 403; `POST` requires `Content-Type: application/json`, which a cross-origin page cannot send without a preflight the server never answers |
+| Malicious web page reading the viewer API via DNS rebinding | The `Host` header must name a loopback address or the configured `--host`; anything else is refused with 403 before the handler runs |
 | Path traversal in PDF URI (`../../etc/passwd`) | `Path.resolve()` normalises the path; `_is_within_directory()` enforces `--pdf-root` boundary when set; `resolve()` makes symlink attacks visible |
 | Oversized POST payloads (memory exhaustion) | `Content-Length` checked against 1 MiB limit before reading body |
 | Oversized PDF responses (memory exhaustion) | PDF bytes are capped at 100 MiB by default; use `--max-pdf-bytes` or `APW_MAX_PDF_BYTES` to tune |
@@ -38,6 +39,7 @@ It does not apply to any internet-facing or multi-user deployment.
 | Null-byte injection in PDF URI | Explicit null-byte check in `_validate_pdf_uri()` |
 | Remote PDF fetch to internal services (SSRF-lite) | Remote PDF fetch is disabled by default; requires explicit `--allow-remote-pdf` flag |
 | Exposing server to network | Server prints a visible WARNING to stderr if bound to a non-local address |
+| Unrestricted local file reads via `/api/pdf` | `--pdf-root` confines reads to one directory; the server prints a startup WARNING when it is unset |
 
 ### Out of scope (not mitigated in this phase)
 
@@ -51,6 +53,25 @@ It does not apply to any internet-facing or multi-user deployment.
 
 ---
 
+## Why binding to 127.0.0.1 is not, by itself, enough
+
+An earlier version of this document claimed that same-origin policy protects the
+API because the server is bound to loopback. That is not correct, and the gap is
+worth stating plainly:
+
+- Same-origin policy stops another site from **reading** our responses. It never
+  stopped it from **sending** a request. A page on any site can POST a
+  CORS-safelisted `text/plain` body to `http://127.0.0.1:8790` with no
+  preflight, and a server that ignores `Content-Type` will act on it.
+- DNS rebinding defeats the policy outright: a name the attacker controls, whose
+  DNS flips to `127.0.0.1`, is *same-origin* with this server. Without a `Host`
+  check, that page can then read anything the API returns — including any local
+  file served by `/api/pdf` when `--pdf-root` is unset.
+
+Both paths are now closed in `viewer_server.py` by the `Host`, `Origin`, and
+`Content-Type` checks listed above, and both are covered by tests in
+`tests/integration/test_viewer_server.py::BrowserAttackSurfaceTest`.
+
 ## Recommended Local Configuration
 
 ```bash
@@ -60,7 +81,8 @@ apw-viewer-server \
 ```
 
 - **Always set `--pdf-root`** to restrict PDF access to a known directory.
-  Without it, the server will serve any local file path the OS user can read.
+  Without it, the server will serve any local file path the OS user can read,
+  and it prints a startup warning saying so.
 - **Never use `--host 0.0.0.0`** unless you understand the consequences.
 - **Do not enable `--allow-remote-pdf`** unless you trust the PDF source URLs.
 - **Keep `--max-pdf-bytes` conservative** unless you know your workstation can handle larger documents.
@@ -97,6 +119,7 @@ Security-relevant events are logged to the `apw.audit` logger:
 | `close_session` | `session_id` |
 | `delete_annotation` | `session_id`, `annotation_id` |
 | `delete_note` | `session_id`, `note_id` |
+| `blocked_request` | `reason` (`host` or `origin`), `path` |
 
 Text content (quotes, selection text, markdown) is **never** included in audit
 logs to avoid leaking document content.

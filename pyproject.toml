@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,10 +9,13 @@ description = "Agent-aware PDF workspace with observable user actions for AI-ass
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Scientific Tooling" }]
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = []
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.0.0"]
+dev = ["ruff>=0.6"]
 
 [project.scripts]
 apw-dev = "agent_pdf_workbench.dev_cli:main"
@@ -27,3 +30,13 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 agent_pdf_workbench = ["web/*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# Errors, pyflakes, warnings, import order, pyupgrade, and the bugbear checks
+# that catch real mistakes rather than style opinions.
+select = ["E", "F", "W", "I", "UP", "B"]

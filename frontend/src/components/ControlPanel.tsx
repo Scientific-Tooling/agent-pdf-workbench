@@ -46,11 +46,19 @@ export function ControlPanel(props: ControlPanelProps) {
         <h2>Session</h2>
         <label>
           Paper Ref
-          <input id="paperRef" value={paperRef} onChange={(event) => onPaperRefChange(event.target.value)} />
+          <input
+            id="paperRef"
+            value={paperRef}
+            onChange={(event) => onPaperRefChange(event.target.value)}
+          />
         </label>
         <label>
           PDF URI (local path or URL)
-          <input id="pdfUri" value={pdfUri} onChange={(event) => onPdfUriChange(event.target.value)} />
+          <input
+            id="pdfUri"
+            value={pdfUri}
+            onChange={(event) => onPdfUriChange(event.target.value)}
+          />
         </label>
         <div className="row">
           <button
@@ -82,11 +90,15 @@ export function ControlPanel(props: ControlPanelProps) {
         <div className="info-row">
           <div className="info-chip">
             <span className="info-chip-label">ID</span>
-            <span id="sessionInfo" className="info-chip-value">{sessionId ?? "—"}</span>
+            <span id="sessionInfo" className="info-chip-value">
+              {sessionId ?? "—"}
+            </span>
           </div>
           <div className="info-chip">
             <span className="info-chip-label">Status</span>
-            <span id="statusText" className="info-chip-value">{status}</span>
+            <span id="statusText" className="info-chip-value">
+              {status}
+            </span>
           </div>
         </div>
       </section>
@@ -126,7 +138,10 @@ export function ControlPanel(props: ControlPanelProps) {
         <ul id="outlineList" className="list compact-list">
           {outline.length === 0 && <li className="muted">No outline</li>}
           {outline.map((item) => (
-            <li key={`${item.level}-${item.page}-${item.title}`} style={{ marginLeft: `${item.level * 10}px` }}>
+            <li
+              key={`${item.level}-${item.page}-${item.title}`}
+              style={{ marginLeft: `${item.level * 10}px` }}
+            >
               <button
                 className="ghost-btn outline-btn"
                 onClick={async () => {
@@ -137,7 +152,10 @@ export function ControlPanel(props: ControlPanelProps) {
                   }
                 }}
               >
-                <span className="muted" style={{ fontSize: "0.72rem", flexShrink: 0 }}>{`p.${item.page}`}</span>
+                <span
+                  className="muted"
+                  style={{ fontSize: "0.72rem", flexShrink: 0 }}
+                >{`p.${item.page}`}</span>
                 {item.title}
               </button>
             </li>

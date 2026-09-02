@@ -1,15 +1,12 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 
-import { applySearchHighlightsToCurrentPage } from "./list-renderers";
+import { applySearchHighlightsToCurrentPage } from "./search-highlight";
 import type { SearchResult } from "../types/types";
 
 function appendSpan(
   textLayer: HTMLDivElement,
-  {
-    content,
-    start,
-    end,
-  }: { content: string; start: number; end: number },
+  { content, start, end }: { content: string; start: number; end: number },
 ): HTMLSpanElement {
   const span = document.createElement("span");
   span.dataset.content = content;
@@ -26,9 +23,7 @@ describe("applySearchHighlightsToCurrentPage", () => {
     const second = appendSpan(textLayer, { content: "attention", start: 6, end: 15 });
     const third = appendSpan(textLayer, { content: "attention again", start: 16, end: 31 });
 
-    const results: SearchResult[] = [
-      { page: 1, snippet: "attention", matchIndex: 17 },
-    ];
+    const results: SearchResult[] = [{ page: 1, snippet: "attention", matchIndex: 17 }];
 
     applySearchHighlightsToCurrentPage({
       textLayer,
@@ -50,9 +45,7 @@ describe("applySearchHighlightsToCurrentPage", () => {
     const first = appendSpan(textLayer, { content: "attention", start: 0, end: 9 });
     const second = appendSpan(textLayer, { content: "attention", start: 10, end: 19 });
 
-    const results: SearchResult[] = [
-      { page: 2, snippet: "attention", matchIndex: 0 },
-    ];
+    const results: SearchResult[] = [{ page: 2, snippet: "attention", matchIndex: 0 }];
 
     applySearchHighlightsToCurrentPage({
       textLayer,

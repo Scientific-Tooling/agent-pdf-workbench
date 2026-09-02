@@ -1,7 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-
-import * as pdfjsLib from "pdfjs-dist/build/pdf.mjs";
-import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { useEffect, useRef, useState } from "react";
 
 import { ControlPanel } from "../components/ControlPanel";
 import { ReaderPanel } from "../components/ReaderPanel";
@@ -10,67 +7,30 @@ import { WorkspacePanel } from "../components/WorkspacePanel";
 import { useGlobalWorkspaceShortcuts } from "../hooks/useGlobalWorkspaceShortcuts";
 import { useSyncedRef } from "../hooks/useSyncedRef";
 import { useToastStack } from "../hooks/useToastStack";
-import { apiPost } from "../services/api";
 import {
   getSelectionRectsAndQuote as getSelectionRectsAndQuoteFromDom,
   renderAnnotationLayer as renderAnnotationLayerFromDom,
 } from "../pdf/annotation-helpers";
+import { ANCHOR_CONTEXT_CHARS } from "./app-types";
+import type { PendingSelection } from "./app-types";
 import {
-  ANCHOR_CONTEXT_CHARS,
-  DEFAULT_AGENT_ID,
-  DEFAULT_USER_ID,
-  MAX_ZOOM,
-  MIN_ZOOM,
-} from "./app-types";
-import type { PendingSelection, PdfDocumentLike, PdfOutlineNode, PdfViewportLike } from "./app-types";
-import { exportJson as exportJsonFile, exportMarkdown as exportMarkdownFile } from "../services/exporters";
-import { asAnnotation, asNote } from "../pdf/main-parsers";
-import { clamp, errorMessage, nowIso, parseLinkedIds, parseTags, uid } from "../utils/main-utils";
-import {
-  applySearchHighlightsToCurrentPage as applySearchHighlightsToCurrentPageInDom,
-} from "../ui/list-renderers";
-import { readTextFromPdfItems, updateCanvasAndLayersSize } from "../pdf/pdf-layer";
-import { getProgress, getRecentPapers, upsertProgress, upsertRecentPaper } from "../services/storage";
+  exportJson as exportJsonFile,
+  exportMarkdown as exportMarkdownFile,
+} from "../services/exporters";
+import { clamp, errorMessage, nowIso } from "../utils/main-utils";
+import { applySearchHighlightsToCurrentPage as applySearchHighlightsToCurrentPageInDom } from "../ui/search-highlight";
+import { upsertProgress, upsertRecentPaper } from "../services/storage";
 import { useWorkspaceSelection } from "./useWorkspaceSelection";
-import type {
-  ActionEvent,
-  Annotation,
-  AnnotationRecord,
-  AnnotationType,
-  Note,
-  NoteRecord,
-  OutlineItem,
-  PaperSession,
-  RecentPaper,
-  SearchResult,
-} from "../types/types";
-import { usePageCache } from "./usePageCache";
+import type { PaperSession } from "../types/types";
+import { usePaperSession } from "./usePaperSession";
+import { usePdfReader } from "./usePdfReader";
+import type { OpenDocument } from "./usePdfReader";
+import { usePdfSearch } from "./usePdfSearch";
+import { useWorkspaceCommands } from "./useWorkspaceCommands";
 import { useWorkspaceData } from "./useWorkspaceData";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
-
 export function App() {
-  const [session, setSession] = useState<PaperSession | null>(null);
-  const [pdfDoc, setPdfDoc] = useState<PdfDocumentLike | null>(null);
-  const [paperRef, setPaperRef] = useState("p_demo_001");
-  const [pdfUri, setPdfUri] = useState("/tmp/paper.pdf");
-  const [page, setPage] = useState(1);
-  const [zoom, setZoom] = useState(1.35);
-  const [searchInputValue, setSearchInputValue] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [searchCursor, setSearchCursor] = useState(0);
-  const [outline, setOutline] = useState<OutlineItem[]>([]);
-  const [recentPapers, setRecentPapers] = useState<RecentPaper[]>(() => getRecentPapers());
   const [status, setStatus] = useState("idle");
-  const [loadingCount, setLoadingCount] = useState(0);
-  const [stageLoadingLabel, setStageLoadingLabel] = useState("Loading PDF...");
-  const [annotationCommentInput, setAnnotationCommentInput] = useState("");
-  const [annotationTagsInput, setAnnotationTagsInput] = useState("");
-  const [noteTitleInput, setNoteTitleInput] = useState("");
-  const [noteLinkedIdsInput, setNoteLinkedIdsInput] = useState("");
-  const [noteMarkdownInput, setNoteMarkdownInput] = useState("");
-  const [pageJumpInput, setPageJumpInput] = useState("");
   const [quickVisible, setQuickVisible] = useState(false);
   const [quickLeft, setQuickLeft] = useState(8);
   const [quickTop, setQuickTop] = useState(8);
@@ -79,17 +39,7 @@ export function App() {
 
   const { toasts, showToast } = useToastStack();
 
-  const sessionRef = useSyncedRef<PaperSession | null>(session);
-  const pdfDocRef = useSyncedRef<PdfDocumentLike | null>(pdfDoc);
-  const pageRef = useSyncedRef<number>(page);
-  const zoomRef = useSyncedRef<number>(zoom);
-  const {
-    pageTextCacheRef,
-    pageCacheRef,
-    disposeBitmap,
-    clearPageCache,
-    setPageCacheEntry,
-  } = usePageCache();
+  const sessionRef = useRef<PaperSession | null>(null);
   const {
     annotations,
     selectedAnnotationId,
@@ -98,7 +48,8 @@ export function App() {
     selectedNoteId,
     setSelectedNoteId,
     events,
-    upsertEvent,
+    recordAction,
+    loadFor: loadWorkspaceFor,
     refreshEvents,
     refreshDomainState,
     upsertAnnotation,
@@ -106,7 +57,10 @@ export function App() {
     upsertNote,
     deleteNote,
     clearWorkspaceData,
-  } = useWorkspaceData({ sessionRef });
+  } = useWorkspaceData({
+    sessionRef,
+    onError: (message) => setStatus(message),
+  });
 
   const pdfStageRef = useRef<HTMLDivElement | null>(null);
   const pdfCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -114,66 +68,154 @@ export function App() {
   const annotationLayerRef = useRef<HTMLDivElement | null>(null);
   const quickAnnotatorRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const isChangingPageRef = useRef(false);
 
+  // The reader owns the document, page rendering, caches, zoom and outline;
+  // App keeps session, annotation, note and export orchestration.
   const {
-    selectedAnnotation,
-    selectedNote,
-    sortedAnnotations,
-    sortedNotes,
-  } = useWorkspaceSelection({
-    annotations,
-    selectedAnnotationId,
-    notes,
-    selectedNoteId,
+    pdfDoc,
+    pdfDocRef,
+    page,
+    pageRef,
+    zoom,
+    outline,
+    pageJumpInput,
+    setPageJumpInput,
+    loadingCount,
+    stageLoadingLabel,
+    pageTextCacheRef,
+    withStageLoading,
+    ensurePageText,
+    renderPage,
+    openDocument,
+    resetReader,
+    goPrevPage,
+    goNextPage,
+    jumpToPageInput,
+    applyZoom,
+    fitWidth,
+    handleStageWheel,
+  } = usePdfReader({
+    pdfStageRef,
+    pdfCanvasRef,
+    textLayerRef,
+    annotationLayerRef,
+    onProgress: persistReadingProgress,
+    onPageChange: async (renderedPage, totalPages, sessionId) => {
+      await recordAction("page_change", { total_pages: totalPages }, renderedPage, null, sessionId);
+    },
+    onZoomChange: async (nextZoom, currentPage) => {
+      await recordAction("zoom_change", { zoom: nextZoom }, currentPage);
+    },
   });
 
+  const {
+    searchInputValue,
+    setSearchInputValue,
+    searchQuery,
+    searchResults,
+    searchCursor,
+    searchInfoText,
+    runSearch,
+    jumpToSearchResult,
+    clearSearch,
+  } = usePdfSearch({
+    pdfDocRef,
+    pageRef,
+    ensurePageText,
+    withStageLoading,
+    renderPage,
+    onResultSummary: (message, kind) => showToast(message, kind, 1600),
+  });
+
+  // Subscribe once and dispatch through a ref, so the listener is not swapped
+  // on every render.
+  const stageWheelRef = useSyncedRef(handleStageWheel);
   useEffect(() => {
-    if (!selectedAnnotation) {
-      setAnnotationCommentInput("");
-      setAnnotationTagsInput("");
+    const stage = pdfStageRef.current;
+    if (!stage) {
       return;
     }
-    setAnnotationCommentInput(selectedAnnotation.comment);
-    setAnnotationTagsInput(selectedAnnotation.tags.join(", "));
-  }, [selectedAnnotation]);
+    const listener = (event: WheelEvent): void => stageWheelRef.current(event);
+    stage.addEventListener("wheel", listener, { passive: true });
+    return () => stage.removeEventListener("wheel", listener);
+  }, [stageWheelRef]);
+  // Written synchronously when a paper opens, because reading progress is
+  // persisted from inside the same call stack that sets the React state.
 
-  useEffect(() => {
-    if (!selectedNote) {
-      setNoteTitleInput("");
-      setNoteLinkedIdsInput("");
-      setNoteMarkdownInput("");
-      return;
-    }
-    setNoteTitleInput(selectedNote.title);
-    setNoteLinkedIdsInput(selectedNote.linkedAnnotationIds.join(", "));
-    setNoteMarkdownInput(selectedNote.markdown);
-  }, [selectedNote]);
+  const {
+    session,
+    paperRef,
+    setPaperRef,
+    pdfUri,
+    setPdfUri,
+    recentPapers,
+    refreshRecentPapers,
+    openPaper,
+    openPaperWithInputs,
+    closeSession,
+  } = usePaperSession({
+    sessionRef,
+    openDocument,
+    loadWorkspaceFor,
+    resetViewer,
+    clearSearch,
+    clearWorkspaceData,
+    setStatus,
+    showToast,
+    onError: reportError,
+  });
 
-  const searchInfoText = useMemo(() => {
-    if (!searchQuery) {
-      return "";
-    }
-    if (searchResults.length === 0) {
-      return "0 matches";
-    }
-    return `${searchCursor + 1}/${searchResults.length} matches`;
-  }, [searchCursor, searchQuery, searchResults.length]);
+  const { selectedAnnotation, selectedNote, sortedAnnotations, sortedNotes } =
+    useWorkspaceSelection({
+      annotations,
+      selectedAnnotationId,
+      notes,
+      selectedNoteId,
+    });
+
+  const {
+    annotationCommentInput,
+    setAnnotationCommentInput,
+    annotationTagsInput,
+    setAnnotationTagsInput,
+    noteTitleInput,
+    setNoteTitleInput,
+    noteLinkedIdsInput,
+    setNoteLinkedIdsInput,
+    noteMarkdownInput,
+    setNoteMarkdownInput,
+    clearInputs,
+    createAnnotation,
+    updateSelectedAnnotationMeta,
+    jumpToAnnotation,
+    deleteSelectedAnnotation,
+    saveNote,
+    deleteSelectedNote,
+    newNoteDraft,
+  } = useWorkspaceCommands({
+    sessionRef,
+    pageRef,
+    annotations,
+    selectedAnnotation,
+    selectedNote,
+    setSelectedAnnotationId,
+    setSelectedNoteId,
+    upsertAnnotation,
+    deleteAnnotationLocally: deleteAnnotation,
+    upsertNote,
+    deleteNoteLocally: deleteNote,
+    recordAction,
+    getSelectionRectsAndQuote,
+    renderPage,
+    onHideQuickAnnotator: hideQuickAnnotator,
+    setStatus,
+    showToast,
+  });
 
   function reportError(error: unknown, fallback = "Operation failed"): void {
     const message = errorMessage(error) || fallback;
     setStatus(message);
     showToast(message, "error", 3200);
-  }
-
-  async function withStageLoading<T>(label: string, task: () => Promise<T>): Promise<T> {
-    setLoadingCount((count) => count + 1);
-    setStageLoadingLabel(label);
-    try {
-      return await task();
-    } finally {
-      setLoadingCount((count) => Math.max(0, count - 1));
-    }
   }
 
   function hideQuickAnnotator(clearPending = true): void {
@@ -199,59 +241,20 @@ export function App() {
     setQuickVisible(true);
   }
 
-  function clearViewerDom(): void {
-    const textLayer = textLayerRef.current;
-    const annotationLayer = annotationLayerRef.current;
-    const canvas = pdfCanvasRef.current;
-    if (textLayer) {
-      textLayer.innerHTML = "";
-    }
-    if (annotationLayer) {
-      annotationLayer.innerHTML = "";
-    }
-    if (canvas) {
-      canvas.width = 0;
-      canvas.height = 0;
-      canvas.style.width = "0px";
-      canvas.style.height = "0px";
-    }
-  }
-
-  function resetWorkspaceState(): void {
-    setSession(null);
-    setPdfDoc(null);
-    pdfDocRef.current = null;
-    setPaperRef("");
-    setPdfUri("");
-    setPage(1);
-    pageRef.current = 1;
-    setPageJumpInput("");
-    setZoom(1.35);
-    zoomRef.current = 1.35;
+  /** Everything the viewer shows, minus which paper is open. */
+  function resetViewer(): void {
+    resetReader();
+    clearSearch();
     clearWorkspaceData();
-    setSearchInputValue("");
-    setSearchQuery("");
-    setSearchResults([]);
-    setSearchCursor(0);
-    setOutline([]);
-    setAnnotationCommentInput("");
-    setAnnotationTagsInput("");
-    setNoteTitleInput("");
-    setNoteLinkedIdsInput("");
-    setNoteMarkdownInput("");
-    setLoadingCount(0);
-    setStageLoadingLabel("Loading PDF...");
+    clearInputs();
     hideQuickAnnotator();
-    pageTextCacheRef.current.clear();
-    clearPageCache();
-    clearViewerDom();
   }
 
-  function persistReadingProgress(nextPage: number, nextZoom: number, sid: string): void {
+  function persistReadingProgress(nextPage: number, nextZoom: number, openDoc: OpenDocument): void {
     const progress = {
-      paperRef,
-      pdfUri,
-      sessionId: sid,
+      paperRef: openDoc.paperRef,
+      pdfUri: openDoc.pdfUri,
+      sessionId: openDoc.sessionId,
       lastPage: nextPage,
       zoom: nextZoom,
       updatedAt: nowIso(),
@@ -264,261 +267,7 @@ export function App() {
       lastPage: progress.lastPage,
       updatedAt: progress.updatedAt,
     });
-    setRecentPapers(getRecentPapers());
-  }
-
-  function tagsEqual(left: string[], right: string[]): boolean {
-    if (left.length !== right.length) {
-      return false;
-    }
-    for (let i = 0; i < left.length; i += 1) {
-      if (left[i] !== right[i]) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  async function recordAction(
-    eventType: string,
-    payload: Record<string, unknown> = {},
-    eventPage: number | null = pageRef.current,
-    selectionText: string | null = null,
-    sessionIdOverride?: string,
-  ): Promise<ActionEvent | null> {
-    const sid = sessionIdOverride ?? sessionRef.current?.id;
-    if (!sid) {
-      return null;
-    }
-    try {
-      const event = await apiPost<ActionEvent>("/api/record-action", {
-        session_id: sid,
-        event_type: eventType,
-        page: eventPage,
-        selection_text: selectionText,
-        payload,
-        source: "viewer",
-      });
-      upsertEvent(event);
-      return event;
-    } catch (error) {
-      setStatus(`record_action failed: ${errorMessage(error)}`);
-      return null;
-    }
-  }
-
-  async function ensurePageText(targetPage: number, doc?: PdfDocumentLike): Promise<string> {
-    const cached = pageTextCacheRef.current.get(targetPage);
-    if (cached !== undefined) {
-      return cached;
-    }
-    const activeDoc = doc ?? pdfDocRef.current;
-    if (!activeDoc) {
-      return "";
-    }
-    const pdfPage = await activeDoc.getPage(targetPage);
-    const textContent = await pdfPage.getTextContent();
-    const text = readTextFromPdfItems(textContent.items);
-    pageTextCacheRef.current.set(targetPage, text);
-    return text;
-  }
-
-  async function renderPage(
-    pageNumber: number,
-    emitPageChange: boolean,
-    sessionIdOverride?: string,
-    docOverride?: PdfDocumentLike,
-  ): Promise<void> {
-    const activeDoc = docOverride ?? pdfDocRef.current;
-    const canvas = pdfCanvasRef.current;
-    const textLayer = textLayerRef.current;
-    const annotationLayer = annotationLayerRef.current;
-    if (!activeDoc || !canvas || !textLayer || !annotationLayer) {
-      return;
-    }
-    const zoom = zoomRef.current;
-    const cached = pageCacheRef.current.get(pageNumber);
-    const cacheHit = cached !== undefined && Math.abs(cached.zoom - zoom) < 0.001;
-
-    let viewport!: PdfViewportLike;
-    let textContent!: { items: Array<Record<string, unknown>> };
-
-    if (cacheHit) {
-      cached!.lastUsedAt = Date.now();
-      viewport = cached!.viewport;
-      textContent = cached!.textContent as { items: Array<Record<string, unknown>> };
-      updateCanvasAndLayersSize(canvas, textLayer, annotationLayer, viewport);
-      const context = canvas.getContext("2d");
-      if (!context) throw new Error("Cannot initialize 2d canvas context");
-      context.drawImage(cached!.bitmap, 0, 0);
-    } else {
-      await withStageLoading("Rendering page...", async () => {
-        const pdfPage = await activeDoc.getPage(pageNumber);
-        const vp = pdfPage.getViewport({ scale: zoom });
-        updateCanvasAndLayersSize(canvas, textLayer, annotationLayer, vp);
-        const context = canvas.getContext("2d");
-        if (!context) throw new Error("Cannot initialize 2d canvas context");
-        await pdfPage.render({ canvasContext: context, viewport: vp }).promise;
-        const tc = await pdfPage.getTextContent() as { items: Array<Record<string, unknown>> };
-        const bitmap = await createImageBitmap(canvas);
-        setPageCacheEntry(pageNumber, { bitmap, textContent: tc, viewport: vp, zoom });
-        viewport = vp;
-        textContent = tc;
-      });
-    }
-
-    textLayer.innerHTML = "";
-    const pdfTextLayer = new pdfjsLib.TextLayer({
-      textContentSource: textContent,
-      container: textLayer,
-      viewport,
-    });
-    await pdfTextLayer.render();
-    let textCursor = 0;
-    for (let i = 0; i < pdfTextLayer.textDivs.length; i++) {
-      const div = pdfTextLayer.textDivs[i];
-      const str = pdfTextLayer.textContentItemsStr[i] ?? "";
-      div.dataset.content = str;
-      div.dataset.start = String(textCursor);
-      div.dataset.end = String(textCursor + str.length);
-      textCursor += str.length + 1;
-    }
-    const pageText = readTextFromPdfItems(textContent.items);
-    pageTextCacheRef.current.set(pageNumber, pageText);
-
-    setPage(pageNumber);
-    pageRef.current = pageNumber;
-    setPageJumpInput(String(pageNumber));
-
-    const sid = sessionIdOverride ?? sessionRef.current?.id;
-    if (sid) persistReadingProgress(pageNumber, zoom, sid);
-    if (emitPageChange) {
-      await recordAction("page_change", { total_pages: activeDoc.numPages }, pageNumber, null, sid);
-    }
-
-    prerenderPageToCache(pageNumber + 1).catch(() => {});
-    prerenderPageToCache(pageNumber - 1).catch(() => {});
-  }
-
-  async function prerenderPageToCache(pageNumber: number): Promise<void> {
-    const doc = pdfDocRef.current;
-    if (!doc || pageNumber < 1 || pageNumber > doc.numPages) return;
-    const zoom = zoomRef.current;
-    const cached = pageCacheRef.current.get(pageNumber);
-    if (cached && Math.abs(cached.zoom - zoom) < 0.001) return;
-    const pdfPage = await doc.getPage(pageNumber);
-    const viewport = pdfPage.getViewport({ scale: zoom });
-    const offscreen = document.createElement("canvas");
-    offscreen.width = viewport.width;
-    offscreen.height = viewport.height;
-    const ctx = offscreen.getContext("2d");
-    if (!ctx) return;
-    await pdfPage.render({ canvasContext: ctx, viewport }).promise;
-    const bitmap = await createImageBitmap(offscreen);
-    const textContent = await pdfPage.getTextContent();
-    if (Math.abs(zoomRef.current - zoom) > 0.001) {
-      disposeBitmap(bitmap);
-      return; // zoom changed, discard
-    }
-    setPageCacheEntry(pageNumber, { bitmap, textContent, viewport, zoom });
-    if (!pageTextCacheRef.current.has(pageNumber)) {
-      pageTextCacheRef.current.set(pageNumber, readTextFromPdfItems(textContent.items));
-    }
-  }
-
-  const renderPageRef = useSyncedRef(renderPage);
-
-  useEffect(() => {
-    const stage = pdfStageRef.current;
-    if (!stage) return;
-
-    function handleWheel(event: WheelEvent) {
-      const s = pdfStageRef.current;
-      if (!s || isChangingPageRef.current) return;
-      const atBottom = s.scrollTop + s.clientHeight >= s.scrollHeight - 2;
-      const atTop = s.scrollTop <= 0;
-      const doc = pdfDocRef.current;
-      if (event.deltaY > 0 && atBottom && doc && pageRef.current < doc.numPages) {
-        isChangingPageRef.current = true;
-        renderPageRef.current(pageRef.current + 1, true)
-          .then(() => { if (pdfStageRef.current) pdfStageRef.current.scrollTop = 0; })
-          .catch(() => {})
-          .finally(() => { isChangingPageRef.current = false; });
-      } else if (event.deltaY < 0 && atTop && pageRef.current > 1) {
-        isChangingPageRef.current = true;
-        renderPageRef.current(pageRef.current - 1, true)
-          .then(() => { if (pdfStageRef.current) pdfStageRef.current.scrollTop = pdfStageRef.current.scrollHeight; })
-          .catch(() => {})
-          .finally(() => { isChangingPageRef.current = false; });
-      }
-    }
-
-    stage.addEventListener("wheel", handleWheel, { passive: true });
-    return () => stage.removeEventListener("wheel", handleWheel);
-  }, []);
-
-  async function jumpToSearchResult(index: number, sourceResults?: SearchResult[]): Promise<void> {
-    const activeResults = sourceResults ?? searchResults;
-    if (activeResults.length === 0) {
-      return;
-    }
-    const normalized = ((index % activeResults.length) + activeResults.length) % activeResults.length;
-    setSearchCursor(normalized);
-    const target = activeResults[normalized];
-    if (pageRef.current !== target.page) {
-      await renderPage(target.page, true);
-    }
-  }
-
-  async function runSearch(queryRaw: string): Promise<void> {
-    const query = queryRaw.trim();
-    setSearchQuery(query);
-    setSearchResults([]);
-    setSearchCursor(0);
-
-    const activeDoc = pdfDocRef.current;
-    if (!query || !activeDoc) {
-      return;
-    }
-
-    const results: SearchResult[] = [];
-    await withStageLoading("Searching document...", async () => {
-      for (let pageNumber = 1; pageNumber <= activeDoc.numPages; pageNumber += 1) {
-        const text = await ensurePageText(pageNumber, activeDoc);
-        const lower = text.toLowerCase();
-        const lowerQuery = query.toLowerCase();
-        let startIndex = 0;
-        while (true) {
-          const hit = lower.indexOf(lowerQuery, startIndex);
-          if (hit === -1) {
-            break;
-          }
-          const snippetStart = Math.max(0, hit - 40);
-          const snippetEnd = Math.min(text.length, hit + query.length + 40);
-          results.push({
-            page: pageNumber,
-            snippet: text.slice(snippetStart, snippetEnd).replace(/\s+/g, " "),
-            matchIndex: hit,
-          });
-          startIndex = hit + query.length;
-          if (results.length >= 300) {
-            break;
-          }
-        }
-        if (results.length >= 300) {
-          break;
-        }
-      }
-    });
-
-    setSearchResults(results);
-    if (results.length > 0) {
-      setSearchCursor(0);
-      await jumpToSearchResult(0, results);
-      showToast(`${results.length} matches found`, "success", 1600);
-    } else {
-      showToast("No matches found", "warning", 1600);
-    }
+    refreshRecentPapers();
   }
 
   function getSelectionRectsAndQuote(clearSelection = true): PendingSelection | null {
@@ -535,176 +284,6 @@ export function App() {
       ANCHOR_CONTEXT_CHARS,
       clearSelection,
     );
-  }
-
-  async function createAnnotation(
-    type: AnnotationType,
-    selectedInput?: PendingSelection,
-    commentOverride?: string,
-  ): Promise<void> {
-    const activeSession = sessionRef.current;
-    if (!activeSession) {
-      setStatus("Open a paper session first.");
-      return;
-    }
-    const selected = selectedInput ?? getSelectionRectsAndQuote();
-    if (!selected) {
-      setStatus("Select text directly on the PDF text layer first.");
-      showToast("Select text on PDF before annotating.", "warning");
-      return;
-    }
-
-    const now = nowIso();
-    const annotation: Annotation = {
-      id: uid("ann"),
-      page: pageRef.current,
-      type,
-      quote: selected.quote,
-      anchor: selected.anchor,
-      comment: commentOverride ?? annotationCommentInput.trim(),
-      tags: parseTags(annotationTagsInput),
-      rects: selected.rects,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    const savedRecord = await apiPost<AnnotationRecord>("/api/annotations", {
-      session_id: activeSession.id,
-      annotation,
-    });
-    const saved = asAnnotation(savedRecord.annotation) ?? annotation;
-    upsertAnnotation(saved);
-    await recordAction("annotation_upsert", { annotation: saved }, pageRef.current, saved.quote, activeSession.id);
-    if (saved.comment) {
-      await recordAction(
-        "comment",
-        { annotation_id: saved.id, text: saved.comment, tags: saved.tags },
-        pageRef.current,
-        saved.quote,
-        activeSession.id,
-      );
-    }
-    hideQuickAnnotator();
-    window.getSelection()?.removeAllRanges();
-    setStatus(`Annotation ${type} saved.`);
-    showToast(type === "highlight" ? "Highlight saved" : "Underline saved", "success");
-  }
-
-  async function updateSelectedAnnotationMeta(): Promise<void> {
-    if (!selectedAnnotation || !sessionRef.current) {
-      return;
-    }
-    const nextComment = annotationCommentInput.trim();
-    const nextTags = parseTags(annotationTagsInput);
-    if (
-      selectedAnnotation.comment === nextComment &&
-      tagsEqual(selectedAnnotation.tags, nextTags)
-    ) {
-      return;
-    }
-    const updated: Annotation = {
-      ...selectedAnnotation,
-      comment: nextComment,
-      tags: nextTags,
-      updatedAt: nowIso(),
-    };
-    const savedRecord = await apiPost<AnnotationRecord>("/api/annotations", {
-      session_id: sessionRef.current.id,
-      annotation: updated,
-    });
-    const saved = asAnnotation(savedRecord.annotation) ?? updated;
-    upsertAnnotation(saved);
-    await recordAction(
-      "annotation_upsert",
-      { annotation: saved },
-      saved.page,
-      saved.quote,
-      sessionRef.current.id,
-    );
-    if (saved.comment) {
-      await recordAction(
-        "comment",
-        { annotation_id: saved.id, text: saved.comment, tags: saved.tags },
-        saved.page,
-        saved.quote,
-        sessionRef.current.id,
-      );
-    }
-    showToast("Annotation metadata updated", "success", 1400);
-  }
-
-  async function jumpToAnnotation(annotationId: string): Promise<void> {
-    const annotation = annotations.find((item) => item.id === annotationId);
-    if (!annotation) {
-      return;
-    }
-    if (pageRef.current !== annotation.page) {
-      await renderPage(annotation.page, true);
-    }
-    setSelectedAnnotationId(annotation.id);
-  }
-
-  async function deleteSelectedAnnotation(): Promise<void> {
-    if (!selectedAnnotation || !sessionRef.current) {
-      return;
-    }
-    await apiPost<{ deleted: boolean }>("/api/annotations/delete", {
-      session_id: sessionRef.current.id,
-      annotation_id: selectedAnnotation.id,
-    });
-    deleteAnnotation(selectedAnnotation.id);
-    await recordAction(
-      "annotation_delete",
-      { annotation_id: selectedAnnotation.id },
-      selectedAnnotation.page,
-      selectedAnnotation.quote,
-      sessionRef.current.id,
-    );
-    setStatus("Annotation deleted.");
-    showToast("Annotation deleted", "success");
-  }
-
-  async function saveNote(): Promise<void> {
-    if (!sessionRef.current) {
-      setStatus("Open a paper session first.");
-      return;
-    }
-    const now = nowIso();
-    const note: Note = {
-      id: selectedNote?.id ?? uid("note"),
-      title: noteTitleInput.trim(),
-      markdown: noteMarkdownInput,
-      linkedAnnotationIds: parseLinkedIds(noteLinkedIdsInput),
-      createdAt: selectedNote?.createdAt ?? now,
-      updatedAt: now,
-    };
-    const savedRecord = await apiPost<NoteRecord>("/api/notes", {
-      session_id: sessionRef.current.id,
-      note,
-    });
-    const saved = asNote(savedRecord.note) ?? note;
-    upsertNote(saved);
-    await recordAction("note_upsert", { note: saved }, pageRef.current, null, sessionRef.current.id);
-    setStatus("Note saved.");
-    showToast("Note saved", "success");
-  }
-
-  async function deleteSelectedNote(): Promise<void> {
-    if (!selectedNote || !sessionRef.current) {
-      return;
-    }
-    await apiPost<{ deleted: boolean }>("/api/notes/delete", {
-      session_id: sessionRef.current.id,
-      note_id: selectedNote.id,
-    });
-    deleteNote(selectedNote.id);
-    await recordAction("note_delete", { note_id: selectedNote.id }, pageRef.current, null, sessionRef.current.id);
-    setStatus("Note deleted.");
-    showToast("Note deleted", "success");
-  }
-
-  function newNoteDraft(): void {
-    setSelectedNoteId(null);
   }
 
   function exportJson(): void {
@@ -729,202 +308,6 @@ export function App() {
       searchQuery,
     });
     showToast("Markdown export ready", "success");
-  }
-
-  async function resolveOutlinePage(doc: PdfDocumentLike, dest: unknown): Promise<number | null> {
-    if (!dest) {
-      return null;
-    }
-    let destination: unknown = dest;
-    if (typeof dest === "string") {
-      destination = await doc.getDestination(dest);
-    }
-    if (!Array.isArray(destination) || destination.length === 0) {
-      return null;
-    }
-    try {
-      const pageIndex = await doc.getPageIndex(destination[0]);
-      return pageIndex + 1;
-    } catch {
-      return null;
-    }
-  }
-
-  async function buildOutline(doc: PdfDocumentLike): Promise<void> {
-    const docOutline = await doc.getOutline();
-    if (!docOutline || docOutline.length === 0) {
-      setOutline([]);
-      return;
-    }
-    const next: OutlineItem[] = [];
-    async function walk(nodes: PdfOutlineNode[], level: number): Promise<void> {
-      for (const node of nodes) {
-        const outlinePage = await resolveOutlinePage(doc, node.dest);
-        if (outlinePage !== null) {
-          next.push({
-            title: node.title || "Untitled",
-            page: outlinePage,
-            level,
-          });
-        }
-        if (node.items && node.items.length > 0) {
-          await walk(node.items, level + 1);
-        }
-      }
-    }
-    await walk(docOutline, 0);
-    setOutline(next);
-  }
-
-  async function loadPdf(
-    nextPdfUri: string,
-    preferredPage: number,
-    sessionIdForInitialActions: string,
-  ): Promise<void> {
-    const source = `/api/pdf?uri=${encodeURIComponent(nextPdfUri)}`;
-    await withStageLoading("Loading PDF...", async () => {
-      const loadingTask = pdfjsLib.getDocument(source);
-      const doc = (await loadingTask.promise) as unknown as PdfDocumentLike;
-      setPdfDoc(doc);
-      pdfDocRef.current = doc;
-      pageTextCacheRef.current.clear();
-      clearPageCache();
-      await buildOutline(doc);
-      const normalizedPage = clamp(preferredPage, 1, doc.numPages);
-      await renderPage(normalizedPage, true, sessionIdForInitialActions, doc);
-    });
-  }
-
-  async function closeSession(options: { silent?: boolean } = {}): Promise<void> {
-    const sid = sessionRef.current?.id;
-    if (!sid) {
-      return;
-    }
-    await apiPost("/api/close-paper", { session_id: sid });
-    resetWorkspaceState();
-    if (!options.silent) {
-      setStatus("session closed");
-      showToast("Session closed", "success");
-    }
-  }
-
-  async function openPaperWithInputs(
-    paperRefValue: string,
-    pdfUriValue: string,
-    options: { preferredPage?: number } = {},
-  ): Promise<void> {
-    if (sessionRef.current) {
-      await closeSession({ silent: true });
-    }
-
-    setStatus("opening session...");
-    const openedSession = await apiPost<PaperSession>("/api/open-paper", {
-      paper_ref: paperRefValue,
-      pdf_uri: pdfUriValue,
-      agent_id: DEFAULT_AGENT_ID,
-      user_id: DEFAULT_USER_ID,
-    });
-
-    setSession(openedSession);
-    sessionRef.current = openedSession;
-    setPaperRef(paperRefValue);
-    setPdfUri(pdfUriValue);
-    setSearchInputValue("");
-    setSearchQuery("");
-    setSearchResults([]);
-    setSearchCursor(0);
-    clearWorkspaceData();
-
-    const progress = getProgress(paperRefValue);
-    const nextZoom = progress?.zoom ?? 1.35;
-    setZoom(nextZoom);
-    zoomRef.current = nextZoom;
-
-    try {
-      const preferredPage = options.preferredPage ?? progress?.lastPage ?? 1;
-      await loadPdf(pdfUriValue, preferredPage, openedSession.id);
-      await Promise.all([
-        refreshEvents({ sessionId: openedSession.id, incremental: false }),
-        refreshDomainState(openedSession.id),
-      ]);
-      setRecentPapers(getRecentPapers());
-      setStatus("session ready");
-      showToast("Session opened", "success");
-    } catch (error) {
-      try {
-        await apiPost("/api/close-paper", { session_id: openedSession.id });
-      } catch {
-        // Keep original open error as primary signal.
-      }
-      resetWorkspaceState();
-      throw error;
-    }
-  }
-
-  async function openPaper(): Promise<void> {
-    const ref = paperRef.trim();
-    const uri = pdfUri.trim();
-    if (!ref || !uri) {
-      setStatus("paper_ref and pdf_uri are required");
-      return;
-    }
-    await openPaperWithInputs(ref, uri);
-  }
-
-  async function goPrevPage(): Promise<void> {
-    const doc = pdfDocRef.current;
-    if (!doc || pageRef.current <= 1) {
-      return;
-    }
-    await renderPage(pageRef.current - 1, true);
-  }
-
-  async function goNextPage(): Promise<void> {
-    const doc = pdfDocRef.current;
-    if (!doc || pageRef.current >= doc.numPages) {
-      return;
-    }
-    await renderPage(pageRef.current + 1, true);
-  }
-
-  async function jumpToPageInput(): Promise<void> {
-    const doc = pdfDocRef.current;
-    if (!doc) {
-      return;
-    }
-    const requested = Number(pageJumpInput);
-    if (!Number.isFinite(requested)) {
-      return;
-    }
-    await renderPage(clamp(Math.round(requested), 1, doc.numPages), true);
-  }
-
-  async function applyZoom(nextZoom: number): Promise<void> {
-    const doc = pdfDocRef.current;
-    if (!doc) {
-      return;
-    }
-    const normalized = clamp(nextZoom, MIN_ZOOM, MAX_ZOOM);
-    if (Math.abs(normalized - zoomRef.current) < 0.001) {
-      return;
-    }
-    clearPageCache();
-    setZoom(normalized);
-    zoomRef.current = normalized;
-    await recordAction("zoom_change", { zoom: normalized }, pageRef.current);
-    await renderPage(pageRef.current, false);
-  }
-
-  async function fitWidth(): Promise<void> {
-    const doc = pdfDocRef.current;
-    const stage = pdfStageRef.current;
-    if (!doc || !stage) {
-      return;
-    }
-    const activePage = await doc.getPage(pageRef.current);
-    const baseViewport = activePage.getViewport({ scale: 1 });
-    const target = (stage.clientWidth - 24) / baseViewport.width;
-    await applyZoom(target);
   }
 
   useEffect(() => {
@@ -956,7 +339,7 @@ export function App() {
       pageTextCache: pageTextCacheRef.current,
       onSelectAnnotation: setSelectedAnnotationId,
     });
-  }, [annotations, page, selectedAnnotationId]);
+  }, [annotations, page, pageTextCacheRef, selectedAnnotationId, setSelectedAnnotationId]);
 
   useGlobalWorkspaceShortcuts({
     quickAnnotatorRef,
@@ -966,13 +349,6 @@ export function App() {
     onGoNextPage: goNextPage,
     onGoPrevPage: goPrevPage,
   });
-
-  useEffect(() => {
-    return () => {
-      clearPageCache();
-      pageTextCacheRef.current.clear();
-    };
-  }, []);
 
   async function handleTextLayerCopy(): Promise<void> {
     const selectedText = window.getSelection()?.toString().trim() ?? "";
@@ -1023,7 +399,7 @@ export function App() {
           onPdfUriChange={setPdfUri}
           onOpenPaper={openPaper}
           onCloseSession={closeSession}
-          onRefreshRecent={() => setRecentPapers(getRecentPapers())}
+          onRefreshRecent={refreshRecentPapers}
           onLoadRecent={async (recent) => {
             await openPaperWithInputs(recent.paperRef, recent.pdfUri, {
               preferredPage: recent.lastPage,

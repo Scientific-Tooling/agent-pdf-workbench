@@ -11,4 +11,3 @@ test("app shell renders core controls", async ({ page }) => {
   await expect(page.locator("#statusText")).toBeVisible();
   await expect(page.locator("#searchToggleBtn")).toBeVisible();
 });
-

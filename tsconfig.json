@@ -10,7 +10,10 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "skipLibCheck": true,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "paths": {
+      "pdfjs-dist/build/pdf.mjs": ["./node_modules/pdfjs-dist/types/src/pdf.d.ts"]
+    }
   },
   "include": ["frontend/src/**/*.ts", "frontend/src/**/*.tsx", "frontend/src/**/*.d.ts"]
 }

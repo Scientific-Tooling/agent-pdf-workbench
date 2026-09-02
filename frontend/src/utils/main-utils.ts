@@ -30,3 +30,12 @@ export function parseLinkedIds(raw: string): string[] {
     .map((value) => value.trim())
     .filter(Boolean);
 }
+
+export function paperRefFromUri(uri: string): string {
+  // Mirrors the agent skill's rule: with no paper_ref given, name the paper
+  // after the file so a deep-linked PDF still gets a stable identifier.
+  const withoutQuery = uri.split(/[?#]/)[0];
+  const base = withoutQuery.split(/[\\/]/).pop() ?? "";
+  const stem = base.replace(/\.pdf$/i, "").trim();
+  return stem || "untitled-paper";
+}

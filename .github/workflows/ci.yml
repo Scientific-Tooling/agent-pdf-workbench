@@ -22,7 +22,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install package
-        run: pip install -e .
+        # mcp is installed so the MCP tool tests run instead of skipping.
+        run: pip install -e '.[mcp,dev]'
+
+      - name: Lint Python
+        run: python3 -m ruff check src tests
 
       - name: Run unit tests
         run: |
@@ -43,7 +47,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - name: Install dependencies
@@ -54,6 +58,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
 
       - name: Frontend unit tests
         run: npm run test:unit
@@ -74,12 +81,12 @@ jobs:
           python-version: "3.12"
 
       - name: Install Python package
-        run: pip install -e .
+        run: pip install -e '.[mcp]'
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - name: Install dependencies

@@ -14,7 +14,7 @@ COALESCIBLE_EVENT_TYPES = frozenset({"page_change", "zoom_change"})
 ANNOTATION_TYPES = frozenset({"highlight", "underline"})
 
 # Increment this when adding a new migration entry to _MIGRATIONS.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Each entry: (version: int, description: str, statements: list[str])
 # Migrations are applied in version order and are forward-only.
@@ -84,6 +84,71 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
             """,
         ],
     ),
+    (
+        2,
+        "scope annotations and notes to paper_ref instead of session_id",
+        [
+            # Annotations and notes are durable reading output: they belong to the
+            # paper, not to the session that happened to create them.  Sessions
+            # remain the grain of the action event log, and are kept on each row as
+            # last-writer provenance.  Rows are copied oldest-first so that
+            # INSERT OR REPLACE leaves the most recently updated row per
+            # (paper_ref, id) as the survivor when the same id existed in several
+            # sessions of one paper.
+            """
+            CREATE TABLE annotations_v2 (
+                paper_ref TEXT NOT NULL,
+                annotation_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (paper_ref, annotation_id)
+            )
+            """,
+            """
+            INSERT OR REPLACE INTO annotations_v2 (
+                paper_ref, annotation_id, session_id, payload_json, created_at, updated_at
+            )
+            SELECT s.paper_ref, a.annotation_id, a.session_id, a.payload_json, a.created_at, a.updated_at
+            FROM annotations a
+            JOIN paper_sessions s ON s.id = a.session_id
+            ORDER BY a.updated_at ASC
+            """,
+            "DROP TABLE annotations",
+            "ALTER TABLE annotations_v2 RENAME TO annotations",
+            """
+            CREATE INDEX IF NOT EXISTS idx_annotations_paper_updated_at
+                ON annotations(paper_ref, updated_at DESC)
+            """,
+            """
+            CREATE TABLE notes_v2 (
+                paper_ref TEXT NOT NULL,
+                note_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (paper_ref, note_id)
+            )
+            """,
+            """
+            INSERT OR REPLACE INTO notes_v2 (
+                paper_ref, note_id, session_id, payload_json, created_at, updated_at
+            )
+            SELECT s.paper_ref, n.note_id, n.session_id, n.payload_json, n.created_at, n.updated_at
+            FROM notes n
+            JOIN paper_sessions s ON s.id = n.session_id
+            ORDER BY n.updated_at ASC
+            """,
+            "DROP TABLE notes",
+            "ALTER TABLE notes_v2 RENAME TO notes",
+            """
+            CREATE INDEX IF NOT EXISTS idx_notes_paper_updated_at
+                ON notes(paper_ref, updated_at DESC)
+            """,
+        ],
+    ),
 ]
 
 
@@ -91,24 +156,40 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+class FieldValidationError(ValueError):
+    """A validation failure that knows which request field caused it.
+
+    The HTTP layer reports ``field`` in ``details.field`` instead of parsing it
+    back out of the message text.
+    """
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
+
+
+def _invalid(field: str, message: str) -> FieldValidationError:
+    return FieldValidationError(field, message)
+
+
 def _validate_limit(limit: int) -> int:
     if limit < 1:
-        raise ValueError("limit must be >= 1")
+        raise _invalid("limit", "limit must be >= 1")
     if limit > MAX_LIST_LIMIT:
-        raise ValueError(f"limit must be <= {MAX_LIST_LIMIT}")
+        raise _invalid("limit", f"limit must be <= {MAX_LIST_LIMIT}")
     return limit
 
 
 def _validate_offset(offset: int) -> int:
     if offset < 0:
-        raise ValueError("offset must be >= 0")
+        raise _invalid("offset", "offset must be >= 0")
     return offset
 
 
 def _require_non_empty_string(payload: dict[str, Any], field: str, *, label: str | None = None) -> str:
     value = payload.get(field)
     if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{label or field} must be a non-empty string")
+        raise _invalid(label or field, f"{label or field} must be a non-empty string")
     return value
 
 
@@ -121,7 +202,7 @@ def _optional_string_value(
 ) -> str:
     value = payload.get(field, default)
     if not isinstance(value, str):
-        raise ValueError(f"{label or field} must be a string")
+        raise _invalid(label or field, f"{label or field} must be a string")
     return value
 
 
@@ -134,48 +215,48 @@ def _require_int(
 ) -> int:
     value = payload.get(field)
     if type(value) is not int:
-        raise ValueError(f"{label or field} must be an integer")
+        raise _invalid(label or field, f"{label or field} must be an integer")
     if minimum is not None and value < minimum:
-        raise ValueError(f"{label or field} must be >= {minimum}")
+        raise _invalid(label or field, f"{label or field} must be >= {minimum}")
     return value
 
 
 def _require_iso_string(payload: dict[str, Any], field: str, *, label: str | None = None) -> str:
     value = _require_non_empty_string(payload, field, label=label)
     if EventStore._parse_iso_datetime(value) is None:
-        raise ValueError(f"{label or field} must be an ISO datetime string")
+        raise _invalid(label or field, f"{label or field} must be an ISO datetime string")
     return value
 
 
 def _validate_string_list(value: Any, field: str) -> list[str]:
     if not isinstance(value, list):
-        raise ValueError(f"{field} must be an array")
+        raise _invalid(field, f"{field} must be an array")
     result: list[str] = []
     for index, item in enumerate(value):
         if not isinstance(item, str):
-            raise ValueError(f"{field}[{index}] must be a string")
+            raise _invalid(f"{field}[{index}]", f"{field}[{index}] must be a string")
         result.append(item)
     return result
 
 
 def _validate_rects(value: Any) -> list[dict[str, float]]:
     if not isinstance(value, list):
-        raise ValueError("rects must be an array")
+        raise _invalid("rects", "rects must be an array")
     result: list[dict[str, float]] = []
     for index, item in enumerate(value):
         if not isinstance(item, dict):
-            raise ValueError(f"rects[{index}] must be an object")
+            raise _invalid(f"rects[{index}]", f"rects[{index}] must be an object")
         rect: dict[str, float] = {}
         for key in ("x", "y", "width", "height"):
             number = item.get(key)
             if type(number) not in (int, float):
-                raise ValueError(f"rects[{index}].{key} must be a number")
+                raise _invalid(f"rects[{index}].{key}", f"rects[{index}].{key} must be a number")
             if not isinstance(number, bool):
                 rect[key] = float(number)
         if rect["width"] < 0:
-            raise ValueError(f"rects[{index}].width must be >= 0")
+            raise _invalid(f"rects[{index}].width", f"rects[{index}].width must be >= 0")
         if rect["height"] < 0:
-            raise ValueError(f"rects[{index}].height must be >= 0")
+            raise _invalid(f"rects[{index}].height", f"rects[{index}].height must be >= 0")
         result.append(rect)
     return result
 
@@ -184,28 +265,28 @@ def _validate_text_anchor(value: Any, fallback_quote: str) -> dict[str, Any] | N
     if value is None:
         return None
     if not isinstance(value, dict):
-        raise ValueError("anchor must be an object")
+        raise _invalid("anchor", "anchor must be an object")
     quote = value.get("quote", fallback_quote)
     if not isinstance(quote, str):
-        raise ValueError("anchor.quote must be a string")
+        raise _invalid("anchor.quote", "anchor.quote must be a string")
     start = value.get("start")
     end = value.get("end")
     if start is not None and type(start) is not int:
-        raise ValueError("anchor.start must be an integer or null")
+        raise _invalid("anchor.start", "anchor.start must be an integer or null")
     if end is not None and type(end) is not int:
-        raise ValueError("anchor.end must be an integer or null")
+        raise _invalid("anchor.end", "anchor.end must be an integer or null")
     if start is not None and start < 0:
-        raise ValueError("anchor.start must be >= 0")
+        raise _invalid("anchor.start", "anchor.start must be >= 0")
     if end is not None and end < 0:
-        raise ValueError("anchor.end must be >= 0")
+        raise _invalid("anchor.end", "anchor.end must be >= 0")
     if start is not None and end is not None and end < start:
-        raise ValueError("anchor.end must be >= anchor.start")
+        raise _invalid("anchor.end", "anchor.end must be >= anchor.start")
     prefix = value.get("prefix", "")
     suffix = value.get("suffix", "")
     if not isinstance(prefix, str):
-        raise ValueError("anchor.prefix must be a string")
+        raise _invalid("anchor.prefix", "anchor.prefix must be a string")
     if not isinstance(suffix, str):
-        raise ValueError("anchor.suffix must be a string")
+        raise _invalid("anchor.suffix", "anchor.suffix must be a string")
     return {
         "quote": quote,
         "start": start,
@@ -224,28 +305,28 @@ def validate_event_payload(
     source: str,
 ) -> dict[str, Any]:
     if not isinstance(event_type, str) or not event_type.strip():
-        raise ValueError("event_type must be a non-empty string")
+        raise _invalid("event_type", "event_type must be a non-empty string")
     if page is not None and (type(page) is not int or page < 1):
-        raise ValueError("page must be an integer >= 1")
+        raise _invalid("page", "page must be an integer >= 1")
     if selection_text is not None and not isinstance(selection_text, str):
-        raise ValueError("selection_text must be a string or null")
+        raise _invalid("selection_text", "selection_text must be a string or null")
     if payload is None:
         payload = {}
     if not isinstance(payload, dict):
-        raise ValueError("payload must be an object")
+        raise _invalid("payload", "payload must be an object")
     if not isinstance(source, str) or not source.strip():
-        raise ValueError("source must be a non-empty string")
+        raise _invalid("source", "source must be a non-empty string")
     return payload
 
 
 def validate_annotation_payload(annotation: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(annotation, dict):
-        raise ValueError("annotation must be an object")
+        raise _invalid("annotation", "annotation must be an object")
     annotation_id = _require_non_empty_string(annotation, "id", label="annotation.id")
     page = _require_int(annotation, "page", minimum=1, label="annotation.page")
     annotation_type = _require_non_empty_string(annotation, "type", label="annotation.type")
     if annotation_type not in ANNOTATION_TYPES:
-        raise ValueError("annotation.type must be highlight or underline")
+        raise _invalid("annotation.type", "annotation.type must be highlight or underline")
     quote = _optional_string_value(annotation, "quote", "", label="annotation.quote")
     comment = _optional_string_value(annotation, "comment", "", label="annotation.comment")
     tags = _validate_string_list(annotation.get("tags", []), "annotation.tags")
@@ -269,7 +350,7 @@ def validate_annotation_payload(annotation: dict[str, Any]) -> dict[str, Any]:
 
 def validate_note_payload(note: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(note, dict):
-        raise ValueError("note must be an object")
+        raise _invalid("note", "note must be an object")
     note_id = _require_non_empty_string(note, "id", label="note.id")
     title = _optional_string_value(note, "title", "", label="note.title")
     markdown = _optional_string_value(note, "markdown", "", label="note.markdown")
@@ -316,6 +397,7 @@ class ActionEvent:
 @dataclass(frozen=True)
 class AnnotationRecord:
     id: str
+    paper_ref: str
     session_id: str
     annotation: dict[str, Any]
     created_at: str
@@ -325,6 +407,7 @@ class AnnotationRecord:
 @dataclass(frozen=True)
 class NoteRecord:
     id: str
+    paper_ref: str
     session_id: str
     note: dict[str, Any]
     created_at: str
@@ -550,10 +633,25 @@ class EventStore:
                 ).fetchall()
         return [self._event_from_row(row) for row in rows]
 
-    def upsert_annotation(self, *, session_id: str, annotation: dict[str, Any]) -> AnnotationRecord:
+    def _resolve_paper_scope(self, *, session_id: str, for_write: bool) -> str:
+        """Return the paper_ref a session writes into, rejecting closed sessions."""
         session = self.get_session(session_id)
-        if session.closed_at is not None:
+        if for_write and session.closed_at is not None:
             raise ValueError(f"Session is closed: {session_id}")
+        return session.paper_ref
+
+    def _scope_from_arguments(self, *, session_id: str | None, paper_ref: str | None) -> str:
+        """Resolve a read scope from either a session id or a paper_ref."""
+        if (session_id is None) == (paper_ref is None):
+            raise _invalid("session_id", "exactly one of session_id or paper_ref is required")
+        if session_id is not None:
+            return self._resolve_paper_scope(session_id=session_id, for_write=False)
+        if not paper_ref.strip():
+            raise _invalid("paper_ref", "paper_ref must be a non-empty string")
+        return paper_ref
+
+    def upsert_annotation(self, *, session_id: str, annotation: dict[str, Any]) -> AnnotationRecord:
+        paper_ref = self._resolve_paper_scope(session_id=session_id, for_write=True)
         annotation = validate_annotation_payload(annotation)
 
         annotation_id = annotation["id"]
@@ -565,34 +663,34 @@ class EventStore:
                 """
                 SELECT created_at
                 FROM annotations
-                WHERE session_id = ? AND annotation_id = ?
+                WHERE paper_ref = ? AND annotation_id = ?
                 """,
-                (session_id, annotation_id),
+                (paper_ref, annotation_id),
             ).fetchone()
             if existing is None:
                 conn.execute(
                     """
                     INSERT INTO annotations (
-                        session_id, annotation_id, payload_json, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?)
+                        paper_ref, annotation_id, session_id, payload_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (session_id, annotation_id, payload_json, now, now),
+                    (paper_ref, annotation_id, session_id, payload_json, now, now),
                 )
             else:
                 conn.execute(
                     """
                     UPDATE annotations
-                    SET payload_json = ?, updated_at = ?
-                    WHERE session_id = ? AND annotation_id = ?
+                    SET payload_json = ?, session_id = ?, updated_at = ?
+                    WHERE paper_ref = ? AND annotation_id = ?
                     """,
-                    (payload_json, now, session_id, annotation_id),
+                    (payload_json, session_id, now, paper_ref, annotation_id),
                 )
             row = conn.execute(
                 """
                 SELECT * FROM annotations
-                WHERE session_id = ? AND annotation_id = ?
+                WHERE paper_ref = ? AND annotation_id = ?
                 """,
-                (session_id, annotation_id),
+                (paper_ref, annotation_id),
             ).fetchone()
         if row is None:
             raise RuntimeError("Failed to upsert annotation.")
@@ -601,46 +699,48 @@ class EventStore:
     def list_annotations(
         self,
         *,
-        session_id: str,
+        session_id: str | None = None,
+        paper_ref: str | None = None,
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
     ) -> list[AnnotationRecord]:
-        self.get_session(session_id)
+        """List a paper's annotations, addressed by session or directly by paper.
+
+        Ordering is by ``annotation_id`` so that paging stays stable while rows
+        are being edited; each record carries ``updatedAt`` for display sorting.
+        """
+        scope = self._scope_from_arguments(session_id=session_id, paper_ref=paper_ref)
         validated_limit = _validate_limit(limit)
         validated_offset = _validate_offset(offset)
         with self._connect() as conn:
             rows = conn.execute(
                 """
                 SELECT * FROM annotations
-                WHERE session_id = ?
-                ORDER BY updated_at DESC, annotation_id ASC
+                WHERE paper_ref = ?
+                ORDER BY annotation_id ASC
                 LIMIT ?
                 OFFSET ?
                 """,
-                (session_id, validated_limit, validated_offset),
+                (scope, validated_limit, validated_offset),
             ).fetchall()
         return [self._annotation_from_row(row) for row in rows]
 
     def delete_annotation(self, *, session_id: str, annotation_id: str) -> bool:
-        session = self.get_session(session_id)
-        if session.closed_at is not None:
-            raise ValueError(f"Session is closed: {session_id}")
+        paper_ref = self._resolve_paper_scope(session_id=session_id, for_write=True)
         if not annotation_id.strip():
-            raise ValueError("annotation_id must be a non-empty string")
+            raise _invalid("annotation_id", "annotation_id must be a non-empty string")
         with self._connect() as conn:
             cur = conn.execute(
                 """
                 DELETE FROM annotations
-                WHERE session_id = ? AND annotation_id = ?
+                WHERE paper_ref = ? AND annotation_id = ?
                 """,
-                (session_id, annotation_id),
+                (paper_ref, annotation_id),
             )
         return cur.rowcount > 0
 
     def upsert_note(self, *, session_id: str, note: dict[str, Any]) -> NoteRecord:
-        session = self.get_session(session_id)
-        if session.closed_at is not None:
-            raise ValueError(f"Session is closed: {session_id}")
+        paper_ref = self._resolve_paper_scope(session_id=session_id, for_write=True)
         note = validate_note_payload(note)
 
         note_id = note["id"]
@@ -652,34 +752,34 @@ class EventStore:
                 """
                 SELECT created_at
                 FROM notes
-                WHERE session_id = ? AND note_id = ?
+                WHERE paper_ref = ? AND note_id = ?
                 """,
-                (session_id, note_id),
+                (paper_ref, note_id),
             ).fetchone()
             if existing is None:
                 conn.execute(
                     """
                     INSERT INTO notes (
-                        session_id, note_id, payload_json, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?)
+                        paper_ref, note_id, session_id, payload_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (session_id, note_id, payload_json, now, now),
+                    (paper_ref, note_id, session_id, payload_json, now, now),
                 )
             else:
                 conn.execute(
                     """
                     UPDATE notes
-                    SET payload_json = ?, updated_at = ?
-                    WHERE session_id = ? AND note_id = ?
+                    SET payload_json = ?, session_id = ?, updated_at = ?
+                    WHERE paper_ref = ? AND note_id = ?
                     """,
-                    (payload_json, now, session_id, note_id),
+                    (payload_json, session_id, now, paper_ref, note_id),
                 )
             row = conn.execute(
                 """
                 SELECT * FROM notes
-                WHERE session_id = ? AND note_id = ?
+                WHERE paper_ref = ? AND note_id = ?
                 """,
-                (session_id, note_id),
+                (paper_ref, note_id),
             ).fetchone()
         if row is None:
             raise RuntimeError("Failed to upsert note.")
@@ -688,39 +788,38 @@ class EventStore:
     def list_notes(
         self,
         *,
-        session_id: str,
+        session_id: str | None = None,
+        paper_ref: str | None = None,
         limit: int = DEFAULT_LIST_LIMIT,
         offset: int = 0,
     ) -> list[NoteRecord]:
-        self.get_session(session_id)
+        scope = self._scope_from_arguments(session_id=session_id, paper_ref=paper_ref)
         validated_limit = _validate_limit(limit)
         validated_offset = _validate_offset(offset)
         with self._connect() as conn:
             rows = conn.execute(
                 """
                 SELECT * FROM notes
-                WHERE session_id = ?
-                ORDER BY updated_at DESC, note_id ASC
+                WHERE paper_ref = ?
+                ORDER BY note_id ASC
                 LIMIT ?
                 OFFSET ?
                 """,
-                (session_id, validated_limit, validated_offset),
+                (scope, validated_limit, validated_offset),
             ).fetchall()
         return [self._note_from_row(row) for row in rows]
 
     def delete_note(self, *, session_id: str, note_id: str) -> bool:
-        session = self.get_session(session_id)
-        if session.closed_at is not None:
-            raise ValueError(f"Session is closed: {session_id}")
+        paper_ref = self._resolve_paper_scope(session_id=session_id, for_write=True)
         if not note_id.strip():
-            raise ValueError("note_id must be a non-empty string")
+            raise _invalid("note_id", "note_id must be a non-empty string")
         with self._connect() as conn:
             cur = conn.execute(
                 """
                 DELETE FROM notes
-                WHERE session_id = ? AND note_id = ?
+                WHERE paper_ref = ? AND note_id = ?
                 """,
-                (session_id, note_id),
+                (paper_ref, note_id),
             )
         return cur.rowcount > 0
 
@@ -751,13 +850,65 @@ class EventStore:
         # PRAGMA wal_checkpoint returns: (busy, log, checkpointed)
         return {"busy": row[0], "log": row[1], "checkpointed": row[2]}
 
+    def list_sessions(
+        self,
+        *,
+        paper_ref: str | None = None,
+        open_only: bool = False,
+        limit: int = DEFAULT_LIST_LIMIT,
+        offset: int = 0,
+    ) -> list[PaperSession]:
+        """List sessions newest-first, optionally filtered by paper or open state.
+
+        This is how an agent finds the session a reader is currently in, instead
+        of having to be told the id out of band.
+        """
+        validated_limit = _validate_limit(limit)
+        validated_offset = _validate_offset(offset)
+        clauses: list[str] = []
+        params: list[Any] = []
+        if paper_ref is not None:
+            if not isinstance(paper_ref, str) or not paper_ref.strip():
+                raise _invalid("paper_ref", "paper_ref must be a non-empty string")
+            clauses.append("paper_ref = ?")
+            params.append(paper_ref)
+        if open_only:
+            clauses.append("closed_at IS NULL")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.extend([validated_limit, validated_offset])
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM paper_sessions
+                {where}
+                ORDER BY opened_at DESC, id ASC
+                LIMIT ?
+                OFFSET ?
+                """,
+                tuple(params),
+            ).fetchall()
+        return [self._session_from_row(row) for row in rows]
+
     def list_all_sessions(self) -> list[PaperSession]:
         """Return all sessions ordered by opened_at descending."""
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM paper_sessions ORDER BY opened_at DESC"
+                "SELECT * FROM paper_sessions ORDER BY opened_at DESC, id ASC"
             ).fetchall()
         return [self._session_from_row(row) for row in rows]
+
+    def list_paper_refs(self) -> list[str]:
+        """Return every distinct paper_ref that has a session, newest paper first."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT paper_ref, MAX(opened_at) AS latest
+                FROM paper_sessions
+                GROUP BY paper_ref
+                ORDER BY latest DESC, paper_ref ASC
+                """
+            ).fetchall()
+        return [row["paper_ref"] for row in rows]
 
     @staticmethod
     def _session_from_row(row: sqlite3.Row) -> PaperSession:
@@ -824,6 +975,7 @@ class EventStore:
     def _annotation_from_row(row: sqlite3.Row) -> AnnotationRecord:
         return AnnotationRecord(
             id=row["annotation_id"],
+            paper_ref=row["paper_ref"],
             session_id=row["session_id"],
             annotation=json.loads(row["payload_json"] or "{}"),
             created_at=row["created_at"],
@@ -834,6 +986,7 @@ class EventStore:
     def _note_from_row(row: sqlite3.Row) -> NoteRecord:
         return NoteRecord(
             id=row["note_id"],
+            paper_ref=row["paper_ref"],
             session_id=row["session_id"],
             note=json.loads(row["payload_json"] or "{}"),
             created_at=row["created_at"],

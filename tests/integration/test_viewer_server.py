@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-import threading
 import tempfile
+import threading
 import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -11,8 +11,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from agent_pdf_workbench.service import AgentPdfWorkbenchService
-from agent_pdf_workbench.viewer_server import _is_within_directory
-from agent_pdf_workbench.viewer_server import _create_handler
+from agent_pdf_workbench.viewer_server import _create_handler, _is_within_directory
 
 
 class ViewerServerTest(unittest.TestCase):
@@ -428,6 +427,244 @@ class ViewerServerHardeningTest(unittest.TestCase):
         self.assertEqual(status, 404)
         self.assertEqual(body.get("code"), "NOT_FOUND")
         self.assertEqual(body.get("error"), "Not Found")
+
+
+class BrowserAttackSurfaceTest(unittest.TestCase):
+    """The local API must refuse requests that did not come from its own viewer.
+
+    Same-origin policy stops another site reading our responses; it never stopped
+    it from sending a request, and an unchecked Host header makes DNS rebinding
+    work.  These are the guards that close both paths.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        service = AgentPdfWorkbenchService(db_path=Path(self._tmp.name) / "events.db")
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), _create_handler(service))
+        host, port = self._server.server_address
+        threading.Thread(target=self._server.serve_forever, daemon=True).start()
+        self._host = host
+        self._port = port
+        self._base = f"http://{host}:{port}"
+
+    def tearDown(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._tmp.cleanup()
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: dict | None = None,
+        headers: dict[str, str] | None = None,
+        content_type: str | None = "application/json",
+        host_header: str | None = None,
+    ) -> tuple[int, dict]:
+        import http.client
+
+        conn = http.client.HTTPConnection(self._host, self._port)
+        body = json.dumps(payload).encode("utf-8") if payload is not None else None
+        send_headers = dict(headers or {})
+        if body is not None and content_type is not None:
+            send_headers["Content-Type"] = content_type
+        if host_header is not None:
+            send_headers["Host"] = host_header
+        conn.request(method, path, body, send_headers)
+        response = conn.getresponse()
+        raw = response.read()
+        try:
+            parsed = json.loads(raw.decode("utf-8")) if raw else {}
+        except json.JSONDecodeError:
+            parsed = {}
+        conn.close()
+        return response.status, parsed
+
+    def _open_session(self) -> str:
+        status, body = self._request(
+            "POST",
+            "/api/open-paper",
+            payload={"paper_ref": "p_guard", "pdf_uri": "/tmp/guard.pdf"},
+        )
+        self.assertEqual(status, 201)
+        return body["id"]
+
+    def test_foreign_host_header_is_rejected(self) -> None:
+        status, body = self._request("GET", "/api/health", host_header="evil.example")
+        self.assertEqual(status, 403)
+        self.assertEqual(body.get("code"), "FORBIDDEN")
+
+    def test_foreign_host_header_cannot_read_local_files(self) -> None:
+        status, body = self._request(
+            "GET",
+            "/api/pdf?uri=/etc/hostname",
+            host_header="attacker.example:1234",
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(body.get("code"), "FORBIDDEN")
+
+    def test_loopback_host_headers_are_accepted(self) -> None:
+        for host_header in (f"127.0.0.1:{self._port}", f"localhost:{self._port}", "127.0.0.1"):
+            status, _ = self._request("GET", "/api/health", host_header=host_header)
+            self.assertEqual(status, 200, host_header)
+
+    def test_cross_origin_write_is_rejected(self) -> None:
+        status, body = self._request(
+            "POST",
+            "/api/open-paper",
+            payload={"paper_ref": "csrf", "pdf_uri": "/tmp/x.pdf"},
+            headers={"Origin": "https://evil.example"},
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(body.get("code"), "FORBIDDEN")
+
+    def test_opaque_origin_is_rejected(self) -> None:
+        status, _ = self._request(
+            "POST",
+            "/api/open-paper",
+            payload={"paper_ref": "csrf", "pdf_uri": "/tmp/x.pdf"},
+            headers={"Origin": "null"},
+        )
+        self.assertEqual(status, 403)
+
+    def test_same_origin_write_is_accepted(self) -> None:
+        status, _ = self._request(
+            "POST",
+            "/api/open-paper",
+            payload={"paper_ref": "p_ok", "pdf_uri": "/tmp/ok.pdf"},
+            headers={"Origin": self._base},
+        )
+        self.assertEqual(status, 201)
+
+    def test_non_json_content_type_is_rejected(self) -> None:
+        """A CORS-safelisted text/plain POST must not reach a write handler."""
+        status, body = self._request(
+            "POST",
+            "/api/open-paper",
+            payload={"paper_ref": "csrf", "pdf_uri": "/tmp/x.pdf"},
+            content_type="text/plain;charset=UTF-8",
+        )
+        self.assertEqual(status, 415)
+        self.assertEqual(body.get("code"), "UNSUPPORTED_MEDIA_TYPE")
+
+    def test_json_content_type_with_charset_is_accepted(self) -> None:
+        status, _ = self._request(
+            "POST",
+            "/api/open-paper",
+            payload={"paper_ref": "p_ok", "pdf_uri": "/tmp/ok.pdf"},
+            content_type="application/json; charset=utf-8",
+        )
+        self.assertEqual(status, 201)
+
+    def test_blocked_write_leaves_no_data_behind(self) -> None:
+        session_id = self._open_session()
+        self._request(
+            "POST",
+            "/api/close-paper",
+            payload={"session_id": session_id},
+            headers={"Origin": "https://evil.example"},
+        )
+        status, body = self._request("GET", f"/api/session?session_id={session_id}")
+        self.assertEqual(status, 200)
+        self.assertIsNone(body["closed_at"], "cross-origin request must not have closed the session")
+
+
+class SessionDiscoveryTest(unittest.TestCase):
+    """An agent must be able to find, and a viewer to re-attach to, a session."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        service = AgentPdfWorkbenchService(db_path=Path(self._tmp.name) / "events.db")
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), _create_handler(service))
+        host, port = self._server.server_address
+        threading.Thread(target=self._server.serve_forever, daemon=True).start()
+        self._base = f"http://{host}:{port}"
+
+    def tearDown(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._tmp.cleanup()
+
+    def _json(self, method: str, path: str, payload: dict | None = None) -> dict:
+        data = json.dumps(payload).encode("utf-8") if payload is not None else None
+        request = Request(f"{self._base}{path}", data=data, method=method)
+        if data is not None:
+            request.add_header("Content-Type", "application/json")
+        with urlopen(request, timeout=10) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def _open(self, paper_ref: str = "p_discovery") -> str:
+        return self._json(
+            "POST",
+            "/api/open-paper",
+            {"paper_ref": paper_ref, "pdf_uri": "/tmp/discovery.pdf"},
+        )["id"]
+
+    def test_list_sessions_finds_the_open_session(self) -> None:
+        first = self._open()
+        self._json("POST", "/api/close-paper", {"session_id": first})
+        second = self._open()
+        self._open("p_other")
+
+        listed = self._json("GET", "/api/sessions?paper_ref=p_discovery&open_only=1")
+        self.assertEqual(listed["count"], 1)
+        self.assertEqual(listed["sessions"][0]["id"], second)
+
+        everything = self._json("GET", "/api/sessions")
+        self.assertEqual(everything["count"], 3)
+        self.assertIn("has_more", everything)
+
+    def test_get_session_returns_enough_to_reopen_the_pdf(self) -> None:
+        session_id = self._open()
+        session = self._json("GET", f"/api/session?session_id={session_id}")
+        self.assertEqual(session["id"], session_id)
+        self.assertEqual(session["paper_ref"], "p_discovery")
+        self.assertEqual(session["pdf_uri"], "/tmp/discovery.pdf")
+
+    def test_get_session_reports_unknown_ids_as_not_found(self) -> None:
+        try:
+            self._json("GET", "/api/session?session_id=ps_missing")
+        except HTTPError as exc:
+            self.assertEqual(exc.code, 404)
+            self.assertEqual(json.loads(exc.read().decode("utf-8"))["code"], "NOT_FOUND")
+        else:
+            self.fail("expected 404 for an unknown session id")
+
+    def test_annotations_are_visible_from_any_session_on_the_paper(self) -> None:
+        first = self._open()
+        annotation = {
+            "id": "ann_shared",
+            "page": 2,
+            "type": "highlight",
+            "quote": "shared evidence",
+            "comment": "",
+            "tags": [],
+            "rects": [],
+            "createdAt": "2026-09-02T10:00:00+00:00",
+            "updatedAt": "2026-09-02T10:00:00+00:00",
+        }
+        self._json("POST", "/api/annotations", {"session_id": first, "annotation": annotation})
+        self._json("POST", "/api/close-paper", {"session_id": first})
+
+        second = self._open()
+        by_session = self._json("GET", f"/api/annotations?session_id={second}")
+        self.assertEqual(by_session["count"], 1)
+        self.assertEqual(by_session["annotations"][0]["id"], "ann_shared")
+        self.assertEqual(by_session["paper_ref"], "p_discovery")
+
+        by_paper = self._json("GET", "/api/annotations?paper_ref=p_discovery")
+        self.assertEqual(by_paper["count"], 1)
+
+    def test_list_requires_exactly_one_scope(self) -> None:
+        try:
+            self._json("GET", "/api/annotations")
+        except HTTPError as exc:
+            self.assertEqual(exc.code, 400)
+            body = json.loads(exc.read().decode("utf-8"))
+            self.assertEqual(body["code"], "MISSING_FIELD")
+        else:
+            self.fail("expected 400 when neither session_id nor paper_ref is given")
 
 
 if __name__ == "__main__":

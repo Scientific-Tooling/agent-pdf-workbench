@@ -171,9 +171,7 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
                   <span className={`ann-type ${annotation.type}`}>{annotation.type}</span>
                   <span className="ann-page">p.{annotation.page}</span>
                 </div>
-                <div className="quote-text">
-                  {annotation.quote || "(empty quote)"}
-                </div>
+                <div className="quote-text">{annotation.quote || "(empty quote)"}</div>
                 {annotation.comment && <div className="muted">{annotation.comment}</div>}
                 {annotation.tags.length > 0 && (
                   <div className="pill-list">
@@ -283,7 +281,9 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
                 className={note.id === selectedNoteId ? "selected" : undefined}
                 onClick={() => onSelectNote(note.id)}
               >
-                <div style={{ fontWeight: 600, fontSize: "0.84rem" }}>{note.title || "(untitled note)"}</div>
+                <div style={{ fontWeight: 600, fontSize: "0.84rem" }}>
+                  {note.title || "(untitled note)"}
+                </div>
                 <div className="muted">
                   {note.markdown.length > 120 ? `${note.markdown.slice(0, 120)}…` : note.markdown}
                 </div>

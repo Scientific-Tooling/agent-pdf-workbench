@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_pdf_workbench.store import EventStore, MAX_LIST_LIMIT
+from agent_pdf_workbench.store import MAX_LIST_LIMIT, EventStore
 
 TEST_TIME = "2026-05-19T12:00:00+00:00"
 
@@ -257,7 +257,7 @@ class JsonPayloadEdgeCaseTest(unittest.TestCase):
 
     def test_unicode_payload_roundtrips(self) -> None:
         payload = {"text": "αβγ 日本語 🎉", "nested": {"a": [1, 2, 3]}}
-        event = self._store.append_event(
+        self._store.append_event(
             session_id="ps_json",
             event_type="comment",
             payload=payload,
@@ -278,7 +278,7 @@ class JsonPayloadEdgeCaseTest(unittest.TestCase):
             "createdAt": TEST_TIME,
             "updatedAt": TEST_TIME,
         }
-        record = self._store.upsert_annotation(session_id="ps_json", annotation=ann)
+        self._store.upsert_annotation(session_id="ps_json", annotation=ann)
         annotations = self._store.list_annotations(session_id="ps_json")
         self.assertEqual(annotations[0].annotation["quote"], ann["quote"])
 

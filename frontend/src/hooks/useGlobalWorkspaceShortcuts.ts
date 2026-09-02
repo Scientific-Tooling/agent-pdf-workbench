@@ -71,5 +71,12 @@ export function useGlobalWorkspaceShortcuts(params: UseGlobalWorkspaceShortcutsP
       document.removeEventListener("mousedown", onMouseDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [onGoNextPage, onGoPrevPage, onHideQuickAnnotator, quickAnnotatorRef, searchInputRef, textLayerRef]);
+  }, [
+    onGoNextPage,
+    onGoPrevPage,
+    onHideQuickAnnotator,
+    quickAnnotatorRef,
+    searchInputRef,
+    textLayerRef,
+  ]);
 }

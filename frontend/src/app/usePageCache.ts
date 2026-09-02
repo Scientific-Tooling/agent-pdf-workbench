@@ -1,13 +1,13 @@
 import { useEffect, useRef } from "react";
 
-import type { PdfViewportLike } from "./app-types";
+import type { PageViewport, TextContent } from "../types/pdfjs-types";
 
 const PAGE_CACHE_LIMIT = 8;
 
 export type PageCacheEntry = {
   bitmap: ImageBitmap;
-  textContent: unknown;
-  viewport: PdfViewportLike;
+  textContent: TextContent;
+  viewport: PageViewport;
   zoom: number;
   lastUsedAt: number;
 };
@@ -35,8 +35,8 @@ export function usePageCache() {
     pageNumber: number,
     entry: {
       bitmap: ImageBitmap;
-      textContent: unknown;
-      viewport: PdfViewportLike;
+      textContent: TextContent;
+      viewport: PageViewport;
       zoom: number;
     },
   ): void {
@@ -75,9 +75,14 @@ export function usePageCache() {
   }
 
   useEffect(() => {
+    const bitmaps = pageCacheRef.current;
+    const texts = pageTextCacheRef.current;
     return () => {
-      clearPageCache();
-      pageTextCacheRef.current.clear();
+      for (const entry of bitmaps.values()) {
+        disposeBitmap(entry.bitmap);
+      }
+      bitmaps.clear();
+      texts.clear();
     };
   }, []);
 

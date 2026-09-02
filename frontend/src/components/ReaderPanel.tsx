@@ -1,9 +1,9 @@
 import { useState, type RefObject } from "react";
 
-import type { PdfDocumentLike } from "../app/app-types";
+import type { PDFDocumentProxy } from "../types/pdfjs-types";
 
 interface ReaderPanelProps {
-  pdfDoc: PdfDocumentLike | null;
+  pdfDoc: PDFDocumentProxy | null;
   page: number;
   pageJumpInput: string;
   zoom: number;
@@ -237,9 +237,19 @@ export function ReaderPanel(props: ReaderPanelProps) {
             }}
           />
           <button id="searchBtn" title="Search" onClick={async () => onRunSearch(searchInputValue)}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8"/>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
           </button>
           <button
@@ -281,9 +291,19 @@ export function ReaderPanel(props: ReaderPanelProps) {
             setTimeout(() => searchInputRef.current?.focus(), 0);
           }}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8"/>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
         </button>
       )}
@@ -357,7 +377,11 @@ export function ReaderPanel(props: ReaderPanelProps) {
             >
               Underline
             </button>
-            <button id="quickDismissBtn" className="ghost-btn" onClick={() => onHideQuickAnnotator()}>
+            <button
+              id="quickDismissBtn"
+              className="ghost-btn"
+              onClick={() => onHideQuickAnnotator()}
+            >
               ✕
             </button>
           </div>

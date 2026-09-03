@@ -3,19 +3,21 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from . import __version__
 from .service import AgentPdfWorkbenchService
 
 
 def build_server(db_path: Path):
     try:
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server.mcpserver import MCPServer
     except ImportError as exc:
         raise RuntimeError(
-            "MCP support requires the optional dependency `mcp`. Install with: pip install 'agent-pdf-workbench[mcp]'"
+            "MCP support requires the optional dependency `mcp>=2.0.0`. "
+            "Install with: pip install 'agent-pdf-workbench[mcp]'"
         ) from exc
 
     service = AgentPdfWorkbenchService(db_path=db_path)
-    mcp = FastMCP("agent-pdf-workbench")
+    mcp = MCPServer("agent-pdf-workbench", version=__version__)
 
     @mcp.tool()
     def open_paper(

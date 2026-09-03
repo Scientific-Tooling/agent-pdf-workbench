@@ -1,12 +1,16 @@
-# MCP Tools
+# MCP v2 Tools
 
 The MCP server exposes the service-layer API for local agents. MCP support is
-optional and requires installing the `mcp` extra:
+optional and requires the MCP Python SDK v2 extra:
 
 ```bash
 pip install 'agent-pdf-workbench[mcp]'
 python3 -m agent_pdf_workbench.mcp_server
 ```
+
+The server uses the SDK's v2 `MCPServer` API and communicates over the default
+stdio transport. The `mcp` package is constrained to the v2 major version so
+the installed SDK and server entrypoint stay compatible.
 
 The server uses `APW_DB_PATH` when set, otherwise `.apw/events.db`.
 

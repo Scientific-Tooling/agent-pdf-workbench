@@ -14,7 +14,7 @@ license-files = ["LICENSE"]
 dependencies = []
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.0.0"]
+mcp = ["mcp>=2.0.0,<3"]
 dev = ["ruff>=0.6"]
 
 [project.scripts]

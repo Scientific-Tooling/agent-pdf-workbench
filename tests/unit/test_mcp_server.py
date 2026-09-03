@@ -16,7 +16,7 @@ from typing import Any
 from agent_pdf_workbench.mcp_server import build_server
 
 try:  # pragma: no cover - import guard mirrors mcp_server.build_server
-    import mcp  # noqa: F401
+    from mcp.server.mcpserver import MCPServer  # noqa: F401
 
     MCP_AVAILABLE = True
 except ImportError:  # pragma: no cover
@@ -43,17 +43,19 @@ def annotation_payload(**overrides: Any) -> dict:
 
 
 def _unwrap(result: Any) -> Any:
-    """Return the JSON payload of a FastMCP tool result across mcp versions."""
-    if isinstance(result, tuple):
-        for part in result:
-            if isinstance(part, dict):
-                return part
-        result = result[0]
-    for item in result:
+    """Return the JSON payload from an MCP v2 ``CallToolResult``."""
+    structured_content = getattr(result, "structured_content", None)
+    if structured_content is not None:
+        return structured_content
+
+    content = getattr(result, "content", None)
+    if content is None:
+        raise AssertionError(f"Expected an MCP v2 CallToolResult: {result!r}")
+    for item in content:
         text = getattr(item, "text", None)
         if text:
             return json.loads(text)
-    raise AssertionError(f"No text content in tool result: {result!r}")
+    raise AssertionError(f"No text content in MCP v2 tool result: {result!r}")
 
 
 @unittest.skipUnless(MCP_AVAILABLE, "optional dependency 'mcp' is not installed")

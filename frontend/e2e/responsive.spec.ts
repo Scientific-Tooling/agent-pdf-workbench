@@ -61,12 +61,24 @@ async function stageFit(page: Page) {
   return page.evaluate(() => {
     const stage = document.querySelector("#pdfStage");
     const canvas = document.querySelector("#pdfCanvas");
-    if (!stage || !canvas) {
+    const documentContainer = document.querySelector(".pdf-document-container");
+    if (!stage || !canvas || !documentContainer) {
       return null;
     }
+    const stageRect = stage.getBoundingClientRect();
+    const documentRect = documentContainer.getBoundingClientRect();
+    const computedStyle = window.getComputedStyle(stage);
+    const paddingLeft = Number.parseFloat(computedStyle.paddingLeft) || 0;
+    const paddingRight = Number.parseFloat(computedStyle.paddingRight) || 0;
+    const stageContentLeft = stageRect.left + paddingLeft;
+    const stageContentWidth = stage.clientWidth - paddingLeft - paddingRight;
+    const stageContentRight = stageContentLeft + stageContentWidth;
     return {
       canvasWidth: canvas.getBoundingClientRect().width,
       stageWidth: stage.clientWidth,
+      stageContentWidth,
+      documentFitsContent:
+        documentRect.left >= stageContentLeft - 1 && documentRect.right <= stageContentRight + 1,
       documentScrollsSideways:
         document.documentElement.scrollWidth > document.documentElement.clientWidth,
     };
@@ -81,7 +93,8 @@ for (const width of [1512, 1280, 1024, 768]) {
 
     const fit = await stageFit(page);
     expect(fit).not.toBeNull();
-    expect(fit!.canvasWidth).toBeLessThanOrEqual(fit!.stageWidth);
+    expect(fit!.canvasWidth).toBeLessThanOrEqual(fit!.stageContentWidth + 1);
+    expect(fit!.documentFitsContent).toBe(true);
     expect(fit!.documentScrollsSideways).toBe(false);
 
     // Fit Width is the control that recovers from any zoom, so it is never the
@@ -109,7 +122,7 @@ test("resizing the window keeps the page fitted until the reader zooms", async (
   await expect
     .poll(async () => {
       const fit = await stageFit(page);
-      return fit ? fit.canvasWidth <= fit.stageWidth : false;
+      return fit ? fit.documentFitsContent : false;
     })
     .toBe(true);
 
@@ -133,7 +146,7 @@ test("resizing the window keeps the page fitted until the reader zooms", async (
   await expect
     .poll(async () => {
       const fit = await stageFit(page);
-      return fit ? fit.canvasWidth <= fit.stageWidth : false;
+      return fit ? fit.documentFitsContent : false;
     })
     .toBe(true);
 });
@@ -170,8 +183,27 @@ test("below the narrow breakpoint panels open over the document, not beside it",
 
   // Opening it must not squeeze the page.
   const fit = await stageFit(page);
-  expect(fit!.canvasWidth).toBeLessThanOrEqual(fit!.stageWidth);
+  expect(fit!.canvasWidth).toBeLessThanOrEqual(fit!.stageContentWidth + 1);
+  expect(fit!.documentFitsContent).toBe(true);
   expect(fit!.documentScrollsSideways).toBe(false);
+
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const toolbar = document.querySelector(".reader-toolbar");
+        const panel = document.querySelector(".panel.workspace");
+        const backdrop = document.querySelector(".panel-backdrop");
+        if (!toolbar || !panel || !backdrop) {
+          return false;
+        }
+        const toolbarBottom = toolbar.getBoundingClientRect().bottom;
+        return (
+          panel.getBoundingClientRect().top >= toolbarBottom - 1 &&
+          backdrop.getBoundingClientRect().top >= toolbarBottom - 1
+        );
+      }),
+    )
+    .toBe(true);
 
   await page.locator(".panel-backdrop").click();
   await expect(page.locator(".panel.workspace")).toBeHidden();
@@ -208,7 +240,8 @@ test("opening a paper never folds a panel out from under the reader", async ({ p
   await expect(page.locator(".panel.workspace")).toBeVisible();
 
   const fit = await stageFit(page);
-  expect(fit!.canvasWidth).toBeLessThanOrEqual(fit!.stageWidth);
+  expect(fit!.canvasWidth).toBeLessThanOrEqual(fit!.stageContentWidth + 1);
+  expect(fit!.documentFitsContent).toBe(true);
 });
 
 test("the sidebar reports the paper, not the plumbing", async ({ page }) => {

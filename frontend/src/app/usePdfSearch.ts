@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 
 import type { SearchResult } from "../types/types";
@@ -25,6 +25,7 @@ export function usePdfSearch(params: PdfSearchParams) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchCursor, setSearchCursor] = useState(0);
+  const searchRunRef = useRef(0);
 
   const searchInfoText = useMemo(() => {
     if (!searchQuery) {
@@ -37,15 +38,21 @@ export function usePdfSearch(params: PdfSearchParams) {
   }, [searchCursor, searchQuery, searchResults.length]);
 
   function clearSearch(): void {
+    searchRunRef.current += 1;
     setSearchInputValue("");
     setSearchQuery("");
     setSearchResults([]);
     setSearchCursor(0);
   }
 
-  async function jumpToSearchResult(index: number, sourceResults?: SearchResult[]): Promise<void> {
+  async function jumpToSearchResult(
+    index: number,
+    sourceResults?: SearchResult[],
+    runId = searchRunRef.current,
+  ): Promise<void> {
     const activeResults = sourceResults ?? searchResults;
-    if (activeResults.length === 0) {
+    const activeDoc = pdfDocRef.current;
+    if (activeResults.length === 0 || !activeDoc || runId !== searchRunRef.current) {
       return;
     }
     const normalized =
@@ -54,6 +61,9 @@ export function usePdfSearch(params: PdfSearchParams) {
     const target = activeResults[normalized];
     if (pageRef.current !== target.page) {
       await renderPage(target.page, true);
+      if (runId !== searchRunRef.current || pdfDocRef.current !== activeDoc) {
+        return;
+      }
     }
   }
 
@@ -80,6 +90,8 @@ export function usePdfSearch(params: PdfSearchParams) {
   }
 
   async function runSearch(queryRaw: string): Promise<void> {
+    const runId = searchRunRef.current + 1;
+    searchRunRef.current = runId;
     const query = queryRaw.trim();
     setSearchQuery(query);
     setSearchResults([]);
@@ -89,11 +101,19 @@ export function usePdfSearch(params: PdfSearchParams) {
     if (!query || !activeDoc) {
       return;
     }
+    const isCurrentSearch = (): boolean =>
+      runId === searchRunRef.current && pdfDocRef.current === activeDoc;
 
     const results: SearchResult[] = [];
     await withStageLoading("Searching document...", async () => {
       for (let pageNumber = 1; pageNumber <= activeDoc.numPages; pageNumber += 1) {
+        if (!isCurrentSearch()) {
+          return;
+        }
         const text = await ensurePageText(pageNumber, activeDoc);
+        if (!isCurrentSearch()) {
+          return;
+        }
         for (const match of collectPageMatches(pageNumber, text, query)) {
           results.push(match);
           if (results.length >= MAX_SEARCH_RESULTS) {
@@ -103,10 +123,16 @@ export function usePdfSearch(params: PdfSearchParams) {
       }
     });
 
+    if (!isCurrentSearch()) {
+      return;
+    }
     setSearchResults(results);
     if (results.length > 0) {
       setSearchCursor(0);
-      await jumpToSearchResult(0, results);
+      await jumpToSearchResult(0, results, runId);
+      if (!isCurrentSearch()) {
+        return;
+      }
       onResultSummary(`${results.length} matches found`, "success");
     } else {
       onResultSummary("No matches found", "warning");

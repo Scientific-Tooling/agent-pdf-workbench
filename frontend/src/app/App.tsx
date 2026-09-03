@@ -171,7 +171,10 @@ export function App() {
     }
     const observer = new ResizeObserver(([entry]) => {
       // Round up: a fractional height leaves the drawer a pixel over the bar.
-      layout.style.setProperty("--toolbar-height", `${Math.ceil(entry.contentRect.height)}px`);
+      // contentRect excludes the toolbar's padding and border, which made a
+      // wrapped toolbar overlap the top of a narrow drawer.
+      const toolbarHeight = toolbar.getBoundingClientRect().height || entry.contentRect.height;
+      layout.style.setProperty("--toolbar-height", `${Math.ceil(toolbarHeight)}px`);
     });
     observer.observe(toolbar);
     return () => observer.disconnect();

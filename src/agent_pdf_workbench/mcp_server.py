@@ -62,14 +62,51 @@ def build_server(db_path: Path):
         return service.close_paper(session_id=session_id)
 
     @mcp.tool()
+    def list_sessions(
+        paper_ref: str | None = None,
+        open_only: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict:
+        """List reading sessions newest-first.
+
+        Use this to find the session a reader currently has open (with
+        open_only=True) instead of being told the id out of band.
+        """
+        return service.list_sessions(
+            paper_ref=paper_ref,
+            open_only=open_only,
+            limit=limit,
+            offset=offset,
+        )
+
+    @mcp.tool()
+    def get_session(session_id: str) -> dict:
+        """Fetch one session by id, including its paper_ref and pdf_uri."""
+        return service.get_session(session_id=session_id)
+
+    @mcp.tool()
     def upsert_annotation(session_id: str, annotation: dict) -> dict:
         """Create or update an annotation in a paper session."""
         return service.upsert_annotation(session_id=session_id, annotation=annotation)
 
     @mcp.tool()
-    def list_annotations(session_id: str, limit: int = 100, offset: int = 0) -> dict:
-        """List annotations for one paper session."""
-        return service.list_annotations(session_id=session_id, limit=limit, offset=offset)
+    def list_annotations(
+        session_id: str | None = None,
+        paper_ref: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict:
+        """List a paper's annotations, addressed by session id or paper_ref.
+
+        Annotations belong to the paper, so both handles return the same set.
+        """
+        return service.list_annotations(
+            session_id=session_id,
+            paper_ref=paper_ref,
+            limit=limit,
+            offset=offset,
+        )
 
     @mcp.tool()
     def delete_annotation(session_id: str, annotation_id: str) -> dict:
@@ -82,9 +119,19 @@ def build_server(db_path: Path):
         return service.upsert_note(session_id=session_id, note=note)
 
     @mcp.tool()
-    def list_notes(session_id: str, limit: int = 100, offset: int = 0) -> dict:
-        """List notes for one paper session."""
-        return service.list_notes(session_id=session_id, limit=limit, offset=offset)
+    def list_notes(
+        session_id: str | None = None,
+        paper_ref: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict:
+        """List a paper's notes, addressed by session id or paper_ref."""
+        return service.list_notes(
+            session_id=session_id,
+            paper_ref=paper_ref,
+            limit=limit,
+            offset=offset,
+        )
 
     @mcp.tool()
     def delete_note(session_id: str, note_id: str) -> dict:
@@ -93,7 +140,7 @@ def build_server(db_path: Path):
 
     @mcp.tool()
     def export_workspace() -> dict:
-        """Export all sessions, events, annotations, and notes."""
+        """Export every paper with its annotations, notes, sessions, and events."""
         return service.export_workspace()
 
     return mcp

@@ -75,6 +75,7 @@ export interface Note {
 
 export interface AnnotationRecord {
   id: string;
+  paper_ref: string;
   session_id: string;
   annotation: Annotation;
   created_at: string;
@@ -83,6 +84,7 @@ export interface AnnotationRecord {
 
 export interface NoteRecord {
   id: string;
+  paper_ref: string;
   session_id: string;
   note: Note;
   created_at: string;
@@ -90,7 +92,8 @@ export interface NoteRecord {
 }
 
 export interface ListAnnotationsResponse {
-  session_id: string;
+  session_id: string | null;
+  paper_ref: string | null;
   count: number;
   annotations: AnnotationRecord[];
   offset: number;
@@ -99,9 +102,18 @@ export interface ListAnnotationsResponse {
 }
 
 export interface ListNotesResponse {
-  session_id: string;
+  session_id: string | null;
+  paper_ref: string | null;
   count: number;
   notes: NoteRecord[];
+  offset: number;
+  has_more: boolean;
+  next_offset: number | null;
+}
+
+export interface ListSessionsResponse {
+  count: number;
+  sessions: PaperSession[];
   offset: number;
   has_more: boolean;
   next_offset: number | null;

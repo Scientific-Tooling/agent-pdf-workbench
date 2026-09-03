@@ -55,10 +55,24 @@ PYTHONPATH=src python3 -m agent_pdf_workbench.dev_cli \
 ```bash
 PYTHONPATH=src python3 -m agent_pdf_workbench.viewer_server \
   --db-path "<DB_PATH>" \
+  --pdf-root "<PDF_DIRECTORY>" \
   --port 8790
 ```
 
-Then use `http://127.0.0.1:8790` and set the same `paper_ref`/`pdf_uri` in UI.
+Then hand the user a link to the session you just opened:
+
+```text
+http://127.0.0.1:8790/?session_id=<SESSION_ID>
+```
+
+The viewer attaches to that session, so the actions the user takes land in the
+session you are already watching. Do **not** ask them to retype
+`paper_ref`/`pdf_uri` into the UI — that opens a different session, and your
+`list-actions` calls would then watch an empty stream.
+
+If you have no session yet, `http://127.0.0.1:8790/?pdf_uri=<PDF_URI>` opens one
+for that file (with `paper_ref` derived from the filename unless you also pass
+`&paper_ref=<PAPER_REF>`).
 
 Enable URL-backed PDFs only when needed:
 
@@ -92,9 +106,34 @@ If viewer mode is used, also return:
 - `viewer_url`
 - whether remote URLs were enabled
 
+## Finding an Existing Session
+
+If the user is already reading, do not open a second session — find theirs:
+
+```bash
+PYTHONPATH=src python3 -m agent_pdf_workbench.dev_cli \
+  --db-path "<DB_PATH>" \
+  list-sessions --open-only --limit 5
+```
+
+Add `--paper-ref "<PAPER_REF>"` to narrow it to one paper. Over MCP the same
+lookup is `list_sessions(open_only=True)`; over HTTP it is
+`GET /api/sessions?open_only=1`.
+
+## Reading Output Is Paper-Scoped
+
+Annotations and notes belong to the `paper_ref`, not to a session. Any session
+on the same paper reads and writes the same set, so reopening a paper keeps
+earlier highlights, and `list_annotations(paper_ref=...)` works without a
+session at all. Only the action event stream is per-session.
+
 ## Failure Handling
 
 - Missing local file: stop and report the resolved path.
 - Unknown session in follow-up calls: confirm `db_path` and recreate session.
-- Closed session: open a new session; do not append to closed sessions.
+- Closed session: open a new session; do not append to closed sessions. Earlier
+  annotations and notes for that paper remain available.
 - Invalid pagination: keep `limit` in `1..1000`.
+- Viewer refuses a request with `FORBIDDEN`: it only answers loopback `Host`
+  headers and same-origin requests; call it as `http://127.0.0.1:8790`, and send
+  `Content-Type: application/json` on POSTs.

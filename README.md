@@ -11,7 +11,10 @@ Traditional PDF readers do not expose user interactions to an AI agent. This pro
 - explicit paper sessions (`open_paper`)
 - structured user interaction events (`record_action`)
 - event replay for agent grounding (`list_actions`)
-- durable annotation/note state via service-side CRUD APIs
+- session discovery (`list_sessions`), so an agent can find the session a reader
+  already has open instead of being told the id
+- durable annotation/note state, scoped to the **paper** rather than the session,
+  so reopening a paper keeps earlier highlights and notes
 
 ## Scope
 
@@ -44,6 +47,11 @@ apw-viewer-server --db-path ~/.apw/events.db --pdf-root ~/Papers
 
 Open: `http://127.0.0.1:8790`
 
+Deep links open the viewer directly:
+
+- `http://127.0.0.1:8790/?session_id=ps_abc123` — attach to an existing session
+- `http://127.0.0.1:8790/?pdf_uri=/path/to/paper.pdf` — open that file
+
 ## Recommended local production profile
 
 ```bash
@@ -64,6 +72,7 @@ apw-viewer-server \
 apw-dev --db-path ~/.apw/events.db open-paper \
   --paper-ref "10.48550/arXiv.1706.03762" --pdf-uri "/tmp/paper.pdf"
 apw-dev --db-path ~/.apw/events.db list-actions --session-id ps_abc123
+apw-dev --db-path ~/.apw/events.db list-sessions --open-only --limit 5
 apw-dev --db-path ~/.apw/events.db close-paper --session-id ps_abc123
 
 # Backup and maintenance
@@ -94,18 +103,24 @@ Build output served by Python:
 - `src/agent_pdf_workbench/web/styles.css`
 - `src/agent_pdf_workbench/web/*` support assets (PDF.js worker, PWA manifest, icon, service worker)
 
+Requires Node `^20.19 || ^22.13 || >=24` (Vite 8 and ESLint 10 set the floor).
+
 Commands:
 
 ```bash
 npm install
+pip install -e '.[mcp,dev]'      # mcp tools + ruff
+
 npm run format:check
+npm run lint:python              # ruff
 npm run test:unit
-npm run test:python:unit        # unit tests only
-npm run test:python:integration # integration tests only
+npm run test:python:unit         # unit tests only
+npm run test:python:integration  # integration tests only
 npm run test:e2e
-npm run check:frontend
+npm run check:frontend           # typecheck, eslint, prettier, unit tests, build
+npm run check:backend            # ruff + python tests
 npm run verify:without-e2e
-npm run verify              # includes Playwright E2E
+npm run verify                   # everything above plus Playwright E2E
 ```
 
 Playwright browser setup (first time only):
@@ -148,6 +163,8 @@ Exposed tools (v0):
 - `record_action`
 - `list_actions`
 - `close_paper`
+- `list_sessions`
+- `get_session`
 - `upsert_annotation`
 - `list_annotations`
 - `delete_annotation`
@@ -169,6 +186,11 @@ apw-viewer-server --db-path ~/.apw/events.db --pdf-root ~/Papers
 Security defaults:
 
 - server binds to `127.0.0.1` (non-local bind prints a warning)
+- requests must carry a loopback `Host` header (blocks DNS rebinding) and, if
+  they carry `Origin` at all, a same-origin one (blocks cross-site writes)
+- `POST` requires `Content-Type: application/json`
+- running without `--pdf-root` prints a warning: any file the OS user can read
+  is then reachable through `/api/pdf`
 - remote PDF fetch is disabled by default; enable explicitly with `--allow-remote-pdf` or `APW_ALLOW_REMOTE_PDF=1`
 - constrain local PDF access with `--pdf-root /path/to/pdfs` (recommended; or `APW_PDF_ROOT`)
 - PDF responses are capped at 100 MiB by default; override with `--max-pdf-bytes` or `APW_MAX_PDF_BYTES`
@@ -179,7 +201,7 @@ Health check:
 
 ```bash
 curl http://127.0.0.1:8790/api/health
-# {"ok": true, "service": "agent-pdf-workbench", "version": "0.1.0", "schema_version": 1, ...}
+# {"ok": true, "service": "agent-pdf-workbench", "version": "0.1.0", "schema_version": 2, ...}
 ```
 
 Current viewer events:
@@ -207,8 +229,10 @@ HTTP API:
 
 - `GET /api/health` — service health, version, schema version
 - `GET /api/list-actions?session_id=...&after_id=...&limit=...`
-- `GET /api/annotations?session_id=...&limit=...&offset=...`
-- `GET /api/notes?session_id=...&limit=...&offset=...`
+- `GET /api/sessions?paper_ref=...&open_only=1&limit=...&offset=...`
+- `GET /api/session?session_id=...`
+- `GET /api/annotations?session_id=...|paper_ref=...&limit=...&offset=...`
+- `GET /api/notes?session_id=...|paper_ref=...&limit=...&offset=...`
 - `POST /api/open-paper` (`{paper_ref, pdf_uri, agent_id?, user_id?, metadata?}`)
 - `POST /api/record-action` (`{session_id, event_type, page?, selection_text?, payload?, source?}`)
 - `POST /api/close-paper` (`{session_id}`)
@@ -231,8 +255,13 @@ Action event semantics:
 List responses include pagination metadata (`has_more` plus `next_after_id` or
 `next_offset`) so long sessions can be fetched without truncation.
 
+Annotations and notes are keyed by `paper_ref`: any session on a paper reads and
+writes the same set, and a `paper_ref` query works without a session at all.
+Only the action event stream is per-session.
+
 Error responses always include `{"error": "...", "code": "..."}` with a machine-readable code
-(`MISSING_FIELD`, `VALIDATION_ERROR`, `FORBIDDEN`, `PAYLOAD_TOO_LARGE`, `BAD_GATEWAY`).
+(`MISSING_FIELD`, `VALIDATION_ERROR`, `FORBIDDEN`, `UNSUPPORTED_MEDIA_TYPE`,
+`PAYLOAD_TOO_LARGE`, `BAD_GATEWAY`).
 Validation errors include `details.field` when the failing field can be identified.
 
 See [docs/api-contract.md](docs/api-contract.md) for full payload contracts.
@@ -256,11 +285,17 @@ src/agent_pdf_workbench/
   web/             # built frontend assets served by viewer_server.py
 frontend/
   index.html       # Vite entry HTML
-  src/             # TypeScript frontend source
+  src/
+    app/           # App composition + session/reader/search/workspace hooks
+    pdf/           # anchoring, text layer, payload parsers
+    services/      # api client, exporters, local storage
+    types/         # re-exports of the type declarations pdfjs-dist ships
+    ui/            # search highlighting
 tests/
   unit/            # pure unit tests (no HTTP server)
     test_store.py
     test_api_validation.py
+    test_mcp_server.py
   integration/     # integration tests (in-process HTTP server + load/regression)
     test_viewer_server.py
     test_load.py
@@ -281,3 +316,9 @@ bootstrap.sh       # one-command local install
 - [docs/operations-local.md](docs/operations-local.md) — backup, restore, upgrade, rollback
 - [docs/security-local.md](docs/security-local.md) — threat model and mitigations
 - [docs/release-checklist.md](docs/release-checklist.md) — release process
+- [docs/review-2026-09-remediation.md](docs/review-2026-09-remediation.md) — September 2026 review and what changed
+- [docs/ui-improvement-plan.md](docs/ui-improvement-plan.md) — batched plan for the viewer UI
+
+## License
+
+MIT — see [LICENSE](LICENSE).

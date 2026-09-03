@@ -182,10 +182,36 @@ class LoadTest(unittest.TestCase):
                 )
 
             exported = service.export_workspace()
-            exported_session = exported["sessions"][0]
-            self.assertEqual(len(exported_session["events"]), event_count)
-            self.assertEqual(len(exported_session["annotations"]), annotation_count)
-            self.assertEqual(len(exported_session["notes"]), note_count)
+            self.assertEqual(exported["paper_count"], 1)
+            exported_paper = exported["papers"][0]
+            self.assertEqual(exported_paper["paper_ref"], "p_export_load")
+            self.assertEqual(len(exported_paper["annotations"]), annotation_count)
+            self.assertEqual(len(exported_paper["notes"]), note_count)
+            self.assertEqual(len(exported_paper["sessions"]), 1)
+            self.assertEqual(len(exported_paper["sessions"][0]["events"]), event_count)
+
+    def test_export_keeps_one_annotation_set_across_many_sessions(self) -> None:
+        """Re-reading a paper must not fragment or duplicate its annotations."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = AgentPdfWorkbenchService(Path(tmp_dir) / "reread.db")
+            for round_index in range(3):
+                session = service.open_paper(
+                    paper_ref="p_reread",
+                    pdf_uri="/tmp/reread.pdf",
+                )
+                service.upsert_annotation(
+                    session_id=session["id"],
+                    annotation=annotation_payload(id=f"ann_round_{round_index}"),
+                )
+                service.record_action(session_id=session["id"], event_type="page_change", page=1)
+                service.close_paper(session_id=session["id"])
+
+            exported = service.export_workspace()
+            self.assertEqual(exported["paper_count"], 1)
+            self.assertEqual(exported["session_count"], 3)
+            paper = exported["papers"][0]
+            self.assertEqual(len(paper["annotations"]), 3)
+            self.assertEqual(len(paper["sessions"]), 3)
 
 
 class SessionCloseRegressionTest(unittest.TestCase):

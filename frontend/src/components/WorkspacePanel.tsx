@@ -4,11 +4,9 @@ import type { ActionEvent, Annotation, Note, SearchResult } from "../types/types
 interface WorkspacePanelProps {
   sortedAnnotations: Annotation[];
   sortedNotes: Note[];
-  selectedAnnotation: Annotation | null;
   selectedAnnotationId: string | null;
   annotationCommentInput: string;
   annotationTagsInput: string;
-  selectedNote: Note | null;
   selectedNoteId: string | null;
   noteTitleInput: string;
   noteLinkedIdsInput: string;
@@ -42,11 +40,9 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
   const {
     sortedAnnotations,
     sortedNotes,
-    selectedAnnotation,
     selectedAnnotationId,
     annotationCommentInput,
     annotationTagsInput,
-    selectedNote,
     selectedNoteId,
     noteTitleInput,
     noteLinkedIdsInput,
@@ -77,17 +73,15 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
   } = props;
 
   return (
-    <aside className="panel workspace">
+    <aside className="panel workspace" aria-label="Annotations, notes and export">
       {/* Annotation section */}
       <details className="card collapsible" open>
         <summary>
           <span className="collapsible-arrow">›</span>
-          <h2 style={{ margin: 0 }}>Annotation</h2>
-          {selectedAnnotation && (
-            <span className="pill" style={{ marginLeft: "auto" }}>
-              {selectedAnnotation.id.slice(-6)}
-            </span>
-          )}
+          <h2 style={{ margin: 0 }}>Annotations</h2>
+          <span className="pill count-pill" title="Annotations on this paper">
+            {sortedAnnotations.length}
+          </span>
         </summary>
         <div className="card-body">
           <div className="row">
@@ -171,9 +165,7 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
                   <span className={`ann-type ${annotation.type}`}>{annotation.type}</span>
                   <span className="ann-page">p.{annotation.page}</span>
                 </div>
-                <div className="quote-text">
-                  {annotation.quote || "(empty quote)"}
-                </div>
+                <div className="quote-text">{annotation.quote || "(empty quote)"}</div>
                 {annotation.comment && <div className="muted">{annotation.comment}</div>}
                 {annotation.tags.length > 0 && (
                   <div className="pill-list">
@@ -204,12 +196,10 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
       <details className="card collapsible" open>
         <summary>
           <span className="collapsible-arrow">›</span>
-          <h2 style={{ margin: 0 }}>Notes (Markdown)</h2>
-          {selectedNote && (
-            <span className="pill" style={{ marginLeft: "auto" }}>
-              {selectedNote.id.slice(-6)}
-            </span>
-          )}
+          <h2 style={{ margin: 0 }}>Notes</h2>
+          <span className="pill count-pill" title="Notes on this paper">
+            {sortedNotes.length}
+          </span>
         </summary>
         <div className="card-body">
           <label>
@@ -283,7 +273,9 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
                 className={note.id === selectedNoteId ? "selected" : undefined}
                 onClick={() => onSelectNote(note.id)}
               >
-                <div style={{ fontWeight: 600, fontSize: "0.84rem" }}>{note.title || "(untitled note)"}</div>
+                <div style={{ fontWeight: 600, fontSize: "0.84rem" }}>
+                  {note.title || "(untitled note)"}
+                </div>
                 <div className="muted">
                   {note.markdown.length > 120 ? `${note.markdown.slice(0, 120)}…` : note.markdown}
                 </div>

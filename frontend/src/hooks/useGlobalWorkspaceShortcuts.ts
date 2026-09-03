@@ -8,6 +8,7 @@ interface UseGlobalWorkspaceShortcutsParams {
   onHideQuickAnnotator: () => void;
   onGoNextPage: () => Promise<void>;
   onGoPrevPage: () => Promise<void>;
+  onToggleShortcuts: () => void;
 }
 
 export function useGlobalWorkspaceShortcuts(params: UseGlobalWorkspaceShortcutsParams) {
@@ -18,6 +19,7 @@ export function useGlobalWorkspaceShortcuts(params: UseGlobalWorkspaceShortcutsP
     onHideQuickAnnotator,
     onGoNextPage,
     onGoPrevPage,
+    onToggleShortcuts,
   } = params;
 
   useEffect(() => {
@@ -35,11 +37,24 @@ export function useGlobalWorkspaceShortcuts(params: UseGlobalWorkspaceShortcutsP
       onHideQuickAnnotator();
     }
 
+    function focusSearch(): void {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    }
+
     async function onKeyDown(event: KeyboardEvent): Promise<void> {
       const target = event.target as HTMLElement | null;
       const editable =
         target &&
         (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+
+      // Ctrl/Cmd+F reaches the document search even from a text field, because
+      // in a reader that is what the shortcut is expected to do.
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        focusSearch();
+        return;
+      }
       if (editable) {
         return;
       }
@@ -53,10 +68,14 @@ export function useGlobalWorkspaceShortcuts(params: UseGlobalWorkspaceShortcutsP
         await onGoPrevPage();
         return;
       }
-      if (event.key === "f") {
+      if (event.key === "?") {
         event.preventDefault();
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
+        onToggleShortcuts();
+        return;
+      }
+      if (event.key === "f" || event.key === "/") {
+        event.preventDefault();
+        focusSearch();
         return;
       }
       if (event.key === "Escape") {
@@ -71,5 +90,13 @@ export function useGlobalWorkspaceShortcuts(params: UseGlobalWorkspaceShortcutsP
       document.removeEventListener("mousedown", onMouseDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [onGoNextPage, onGoPrevPage, onHideQuickAnnotator, quickAnnotatorRef, searchInputRef, textLayerRef]);
+  }, [
+    onGoNextPage,
+    onGoPrevPage,
+    onHideQuickAnnotator,
+    onToggleShortcuts,
+    quickAnnotatorRef,
+    searchInputRef,
+    textLayerRef,
+  ]);
 }

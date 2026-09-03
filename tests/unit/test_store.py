@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_pdf_workbench.store import EventStore, SCHEMA_VERSION
+from agent_pdf_workbench.store import SCHEMA_VERSION, EventStore
 
 TEST_TIME = "2026-05-19T12:00:00+00:00"
 
@@ -403,3 +403,227 @@ class SchemaVersioningTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PaperScopedStateTest(unittest.TestCase):
+    """Annotations and notes belong to the paper, not to one reading session."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self._store = EventStore(Path(self._tmp.name) / "scope.db")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _open(self, session_id: str, paper_ref: str = "p_scope") -> None:
+        self._store.open_session(
+            session_id=session_id,
+            paper_ref=paper_ref,
+            pdf_uri="/tmp/scope.pdf",
+            agent_id="agent:test",
+            user_id="user:test",
+        )
+
+    def test_annotations_survive_into_a_later_session_on_the_same_paper(self) -> None:
+        self._open("ps_first")
+        self._store.upsert_annotation(
+            session_id="ps_first",
+            annotation=annotation_payload(id="ann_keep", quote="scaled dot-product attention"),
+        )
+        self._store.close_session("ps_first")
+
+        self._open("ps_second")
+        records = self._store.list_annotations(session_id="ps_second")
+        self.assertEqual([record.id for record in records], ["ann_keep"])
+        self.assertEqual(records[0].annotation["quote"], "scaled dot-product attention")
+        self.assertEqual(records[0].paper_ref, "p_scope")
+
+    def test_notes_survive_into_a_later_session_on_the_same_paper(self) -> None:
+        self._open("ps_first")
+        self._store.upsert_note(session_id="ps_first", note=note_payload(id="note_keep", title="Kept"))
+        self._store.close_session("ps_first")
+
+        self._open("ps_second")
+        records = self._store.list_notes(session_id="ps_second")
+        self.assertEqual([record.id for record in records], ["note_keep"])
+        self.assertEqual(records[0].note["title"], "Kept")
+
+    def test_other_papers_stay_separate(self) -> None:
+        self._open("ps_a", paper_ref="p_a")
+        self._open("ps_b", paper_ref="p_b")
+        self._store.upsert_annotation(session_id="ps_a", annotation=annotation_payload(id="ann_a"))
+
+        self.assertEqual(len(self._store.list_annotations(session_id="ps_a")), 1)
+        self.assertEqual(self._store.list_annotations(session_id="ps_b"), [])
+
+    def test_later_session_can_update_and_delete_earlier_work(self) -> None:
+        self._open("ps_first")
+        self._store.upsert_annotation(session_id="ps_first", annotation=annotation_payload(id="ann_1"))
+        self._open("ps_second")
+        updated = self._store.upsert_annotation(
+            session_id="ps_second",
+            annotation=annotation_payload(id="ann_1", comment="second pass"),
+        )
+        self.assertEqual(updated.annotation["comment"], "second pass")
+        self.assertEqual(updated.session_id, "ps_second", "row records its last writer")
+        self.assertEqual(len(self._store.list_annotations(paper_ref="p_scope")), 1)
+
+        self.assertTrue(self._store.delete_annotation(session_id="ps_second", annotation_id="ann_1"))
+        self.assertEqual(self._store.list_annotations(paper_ref="p_scope"), [])
+
+    def test_listing_requires_exactly_one_scope(self) -> None:
+        self._open("ps_first")
+        with self.assertRaises(ValueError):
+            self._store.list_annotations()
+        with self.assertRaises(ValueError):
+            self._store.list_annotations(session_id="ps_first", paper_ref="p_scope")
+
+    def test_list_sessions_filters_by_paper_and_open_state(self) -> None:
+        self._open("ps_a", paper_ref="p_a")
+        self._open("ps_b", paper_ref="p_b")
+        self._open("ps_c", paper_ref="p_a")
+        self._store.close_session("ps_a")
+
+        all_ids = {session.id for session in self._store.list_sessions()}
+        self.assertEqual(all_ids, {"ps_a", "ps_b", "ps_c"})
+
+        paper_a = {session.id for session in self._store.list_sessions(paper_ref="p_a")}
+        self.assertEqual(paper_a, {"ps_a", "ps_c"})
+
+        open_a = {session.id for session in self._store.list_sessions(paper_ref="p_a", open_only=True)}
+        self.assertEqual(open_a, {"ps_c"})
+
+    def test_list_paper_refs_deduplicates(self) -> None:
+        self._open("ps_a", paper_ref="p_a")
+        self._open("ps_b", paper_ref="p_a")
+        self._open("ps_c", paper_ref="p_b")
+        self.assertEqual(sorted(self._store.list_paper_refs()), ["p_a", "p_b"])
+
+
+class SchemaMigrationTest(unittest.TestCase):
+    """A v1 database must upgrade in place without losing reading output."""
+
+    _V1_SCHEMA = [
+        """
+        CREATE TABLE paper_sessions (
+            id TEXT PRIMARY KEY,
+            paper_ref TEXT NOT NULL,
+            pdf_uri TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            opened_at TEXT NOT NULL,
+            closed_at TEXT
+        )
+        """,
+        """
+        CREATE TABLE action_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            page INTEGER,
+            selection_text TEXT,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            source TEXT NOT NULL DEFAULT 'viewer',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES paper_sessions(id)
+        )
+        """,
+        """
+        CREATE TABLE annotations (
+            session_id TEXT NOT NULL,
+            annotation_id TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (session_id, annotation_id)
+        )
+        """,
+        """
+        CREATE TABLE notes (
+            session_id TEXT NOT NULL,
+            note_id TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (session_id, note_id)
+        )
+        """,
+        """
+        CREATE TABLE schema_migrations (
+            version INTEGER PRIMARY KEY,
+            description TEXT NOT NULL DEFAULT '',
+            applied_at TEXT NOT NULL
+        )
+        """,
+        "INSERT INTO schema_migrations (version, description, applied_at)"
+        " VALUES (1, 'initial schema', '2026-01-01T00:00:00+00:00')",
+    ]
+
+    def _write_v1_database(self, db_path: Path) -> None:
+        import json as _json
+
+        conn = sqlite3.connect(db_path)
+        try:
+            for statement in self._V1_SCHEMA:
+                conn.execute(statement)
+            legacy_sessions = (
+                ("ps_old", "2026-01-01T00:00:00+00:00"),
+                ("ps_new", "2026-02-01T00:00:00+00:00"),
+            )
+            for session_id, opened_at in legacy_sessions:
+                conn.execute(
+                    """
+                    INSERT INTO paper_sessions (id, paper_ref, pdf_uri, agent_id, user_id, metadata_json, opened_at)
+                    VALUES (?, 'p_legacy', '/tmp/legacy.pdf', 'agent:x', 'user:x', '{}', ?)
+                    """,
+                    (session_id, opened_at),
+                )
+            # Same annotation id touched in two sessions of one paper: newest wins.
+            old = "2026-01-01T00:00:00+00:00"
+            new = "2026-02-01T00:00:00+00:00"
+            insert_annotation = "INSERT INTO annotations VALUES (?, ?, ?, ?, ?)"
+            conn.execute(
+                insert_annotation,
+                ("ps_old", "ann_dup", _json.dumps(annotation_payload(id="ann_dup", comment="older")), old, old),
+            )
+            conn.execute(
+                insert_annotation,
+                ("ps_new", "ann_dup", _json.dumps(annotation_payload(id="ann_dup", comment="newer")), new, new),
+            )
+            conn.execute(
+                insert_annotation,
+                ("ps_old", "ann_only_old", _json.dumps(annotation_payload(id="ann_only_old")), old, old),
+            )
+            conn.execute(
+                "INSERT INTO notes VALUES (?, ?, ?, ?, ?)",
+                ("ps_old", "note_legacy", _json.dumps(note_payload(id="note_legacy", title="Legacy")), old, old),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_v1_database_upgrades_and_keeps_annotations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "legacy.db"
+            self._write_v1_database(db_path)
+
+            store = EventStore(db_path)
+            self.assertEqual(store.get_schema_version(), SCHEMA_VERSION)
+
+            records = store.list_annotations(paper_ref="p_legacy")
+            by_id = {record.id: record for record in records}
+            self.assertEqual(sorted(by_id), ["ann_dup", "ann_only_old"])
+            self.assertEqual(
+                by_id["ann_dup"].annotation["comment"],
+                "newer",
+                "the most recently updated row must win the merge",
+            )
+            self.assertEqual(by_id["ann_only_old"].paper_ref, "p_legacy")
+
+            notes = store.list_notes(paper_ref="p_legacy")
+            self.assertEqual([note.id for note in notes], ["note_legacy"])
+
+            # Both legacy sessions now see the merged paper-level set.
+            self.assertEqual(len(store.list_annotations(session_id="ps_old")), 2)
+            self.assertEqual(len(store.list_annotations(session_id="ps_new")), 2)

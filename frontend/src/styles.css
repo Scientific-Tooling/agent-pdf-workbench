@@ -1,26 +1,28 @@
 :root {
   /* ── Colors (Slate & Indigo) ── */
-  --bg-app: #f8fafc;       /* slate-50 */
-  --bg-panel: #ffffff;     /* white */
-  --bg-card: #ffffff;      /* white */
-  --bg-hover: #f1f5f9;     /* slate-100 */
-  --bg-active: #e2e8f0;    /* slate-200 */
-  --bg-selected: #e0e7ff;  /* indigo-100 */
+  --bg-app: #f8fafc; /* slate-50 */
+  --bg-panel: #ffffff; /* white */
+  --bg-card: #ffffff; /* white */
+  --bg-hover: #f1f5f9; /* slate-100 */
+  --bg-active: #e2e8f0; /* slate-200 */
+  --bg-selected: #e0e7ff; /* indigo-100 */
 
   --border-subtle: #f1f5f9; /* slate-100 */
   --border-default: #e2e8f0; /* slate-200 */
-  --border-focus: #4f46e5;   /* indigo-600 */
+  --border-focus: #4f46e5; /* indigo-600 */
 
-  --text-primary: #0f172a;   /* slate-900 */
+  --text-primary: #0f172a; /* slate-900 */
   --text-secondary: #475569; /* slate-600 */
-  --text-tertiary: #94a3b8;  /* slate-400 */
+  /* Muted text still has to clear WCAG AA on the darkest light surface it
+     lands on (#f1f5f9): slate-400 measured 2.56:1, slate-500 4.34:1. */
+  --text-tertiary: #5b6979;
   --text-inverse: #ffffff;
 
   /* Brand / Accent */
   --accent-primary: #4f46e5; /* indigo-600 */
-  --accent-hover: #4338ca;   /* indigo-700 */
-  --accent-light: #eef2ff;   /* indigo-50 */
-  --accent-border: #c7d2fe;  /* indigo-200 */
+  --accent-hover: #4338ca; /* indigo-700 */
+  --accent-light: #eef2ff; /* indigo-50 */
+  --accent-border: #c7d2fe; /* indigo-200 */
 
   /* Semantic */
   --success-bg: #f0fdf4;
@@ -36,9 +38,28 @@
   --danger-border: #fecaca;
   --danger-hover: #dc2626;
 
+  /* Surfaces that were previously written as literals */
+  --bg-stage: #eef2f6;
+  --bg-input: #ffffff;
+  --bg-toolbar: rgba(255, 255, 255, 0.65);
+  --border-strong: #cbd5e1; /* slate-300 */
+  --border-hairline: rgba(15, 23, 42, 0.05);
+  --scrim: rgba(15, 23, 42, 0.35);
+  --focus-ring: rgba(79, 70, 229, 0.15);
+  --page-shadow: 0 4px 20px rgba(15, 23, 42, 0.08);
+
   /* Annotations */
   --highlight-color: rgba(253, 224, 71, 0.4); /* yellow-300 */
   --underline-color: #ef4444; /* red-500 */
+  --annotation-pill-bg: #fef9c3; /* yellow-100 */
+  --annotation-pill-text: #854d0e; /* yellow-800 */
+  --annotation-pill-border: #fde047; /* yellow-300 */
+  --underline-pill-bg: #ffe4e6; /* rose-100 */
+
+  /* Search hits: a hue of their own, so a match never reads as an annotation */
+  --search-hit-color: rgba(56, 189, 248, 0.32); /* sky-400 */
+  --search-hit-current-color: rgba(14, 165, 233, 0.55); /* sky-500 */
+  --search-hit-current-border: #0284c7; /* sky-600 */
 
   /* ── Spacing & Layout ── */
   --header-height: 52px;
@@ -48,11 +69,145 @@
   --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.04);
   --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -2px rgba(15, 23, 42, 0.04);
-  --shadow-popover: 0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 10px 10px -5px rgba(15, 23, 42, 0.06), 0 0 0 1px rgba(15, 23, 42, 0.05);
+  --shadow-popover:
+    0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 10px 10px -5px rgba(15, 23, 42, 0.06),
+    0 0 0 1px rgba(15, 23, 42, 0.05);
   --shadow-glow: 0 0 15px rgba(79, 70, 229, 0.4);
 }
 
-*, *::before, *::after {
+/* The dark palette redefines tokens only. The PDF page itself is never
+   inverted — a paper is white — so the stage around it stays dark enough for
+   the page to read as the lit object on the screen. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg-app: #0f1722;
+    --bg-panel: #151d29;
+    --bg-card: #172130;
+    --bg-hover: #1d2836;
+    --bg-active: #243040;
+    --bg-selected: #24304d;
+    --bg-stage: #0b111a;
+    --bg-input: #111a25;
+    --bg-toolbar: rgba(21, 29, 41, 0.82);
+
+    --border-subtle: #1e2836;
+    --border-default: #2a3646;
+    --border-strong: #3a4759;
+    --border-focus: #8ea2ff;
+    --border-hairline: rgba(255, 255, 255, 0.06);
+    --scrim: rgba(4, 8, 14, 0.6);
+    --focus-ring: rgba(142, 162, 255, 0.35);
+    --page-shadow: 0 6px 28px rgba(0, 0, 0, 0.55);
+
+    --text-primary: #e7eef7;
+    --text-secondary: #b3c0d1;
+    --text-tertiary: #8b9bb1;
+    --text-inverse: #0f1722;
+
+    --accent-primary: #7c8cff;
+    --accent-hover: #93a1ff;
+    --accent-light: #1b2440;
+    --accent-border: #35406b;
+
+    --success-bg: #10291f;
+    --success-text: #6ee7b7;
+    --success-border: #1f4a38;
+
+    --warning-bg: #2d2210;
+    --warning-text: #fbbf5a;
+    --warning-border: #4d3a15;
+
+    --danger-bg: #2e1618;
+    --danger-text: #fda4a4;
+    --danger-border: #522527;
+    --danger-hover: #f87171;
+
+    --highlight-color: rgba(253, 224, 71, 0.42);
+    --underline-color: #f87171;
+    --annotation-pill-bg: #33290b;
+    --annotation-pill-text: #fde68a;
+    --annotation-pill-border: #5c4a12;
+    --underline-pill-bg: #3a1c22;
+
+    --search-hit-color: rgba(56, 189, 248, 0.36);
+    --search-hit-current-color: rgba(56, 189, 248, 0.62);
+    --search-hit-current-border: #38bdf8;
+
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.55), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
+    --shadow-popover:
+      0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 10px 10px -5px rgba(0, 0, 0, 0.45),
+      0 0 0 1px rgba(255, 255, 255, 0.06);
+  }
+}
+
+/* An explicit choice wins over the OS setting, in both directions. */
+:root[data-theme="dark"] {
+  --bg-app: #0f1722;
+  --bg-panel: #151d29;
+  --bg-card: #172130;
+  --bg-hover: #1d2836;
+  --bg-active: #243040;
+  --bg-selected: #24304d;
+  --bg-stage: #0b111a;
+  --bg-input: #111a25;
+  --bg-toolbar: rgba(21, 29, 41, 0.82);
+
+  --border-subtle: #1e2836;
+  --border-default: #2a3646;
+  --border-strong: #3a4759;
+  --border-focus: #8ea2ff;
+  --border-hairline: rgba(255, 255, 255, 0.06);
+  --scrim: rgba(4, 8, 14, 0.6);
+  --focus-ring: rgba(142, 162, 255, 0.35);
+  --page-shadow: 0 6px 28px rgba(0, 0, 0, 0.55);
+
+  --text-primary: #e7eef7;
+  --text-secondary: #b3c0d1;
+  --text-tertiary: #8b9bb1;
+  --text-inverse: #0f1722;
+
+  --accent-primary: #7c8cff;
+  --accent-hover: #93a1ff;
+  --accent-light: #1b2440;
+  --accent-border: #35406b;
+
+  --success-bg: #10291f;
+  --success-text: #6ee7b7;
+  --success-border: #1f4a38;
+
+  --warning-bg: #2d2210;
+  --warning-text: #fbbf5a;
+  --warning-border: #4d3a15;
+
+  --danger-bg: #2e1618;
+  --danger-text: #fda4a4;
+  --danger-border: #522527;
+  --danger-hover: #f87171;
+
+  --highlight-color: rgba(253, 224, 71, 0.42);
+  --underline-color: #f87171;
+  --annotation-pill-bg: #33290b;
+  --annotation-pill-text: #fde68a;
+  --annotation-pill-border: #5c4a12;
+  --underline-pill-bg: #3a1c22;
+
+  --search-hit-color: rgba(56, 189, 248, 0.36);
+  --search-hit-current-color: rgba(56, 189, 248, 0.62);
+  --search-hit-current-border: #38bdf8;
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.55), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
+  --shadow-popover:
+    0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 10px 10px -5px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -67,7 +222,12 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   margin: 0;
   font-weight: 600;
   color: var(--text-primary);
@@ -94,7 +254,8 @@ button {
 
 /* ── Inputs ── */
 
-input, textarea {
+input,
+textarea {
   display: block;
   width: 100%;
   padding: 10px 14px;
@@ -102,26 +263,31 @@ input, textarea {
   font-size: 0.875rem;
   line-height: 1.5;
   color: var(--text-primary);
-  background-color: #fafafa;
+  background-color: var(--bg-input);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.02);
 }
 
-input:hover, textarea:hover {
-  border-color: #cbd5e1; /* slate-300 */
-  background-color: #ffffff;
+input:hover,
+textarea:hover {
+  border-color: var(--border-strong);
+  background-color: var(--bg-input);
 }
 
-input:focus, textarea:focus {
+input:focus,
+textarea:focus {
   outline: none;
-  background-color: #ffffff;
+  background-color: var(--bg-input);
   border-color: var(--border-focus);
-  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.02), 0 0 0 3px rgba(79, 70, 229, 0.15); /* indigo ring */
+  box-shadow:
+    inset 0 1px 2px rgba(15, 23, 42, 0.02),
+    0 0 0 3px var(--focus-ring);
 }
 
-input::placeholder, textarea::placeholder {
+input::placeholder,
+textarea::placeholder {
   color: var(--text-tertiary);
   opacity: 0.8;
 }
@@ -137,7 +303,8 @@ label {
 
 /* ── Buttons ── */
 
-.btn-base, button {
+.btn-base,
+button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -159,13 +326,17 @@ button:active {
 button:not([class*="-btn"]) {
   background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-hover) 100%);
   color: var(--text-inverse);
-  box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  box-shadow:
+    0 2px 4px rgba(79, 70, 229, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
   border: 1px solid transparent;
 }
 
 button:not([class*="-btn"]):hover {
   background: linear-gradient(135deg, var(--accent-hover) 0%, #3730a3 100%);
-  box-shadow: 0 4px 8px rgba(79, 70, 229, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 4px 8px rgba(79, 70, 229, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
   transform: translateY(-1px);
 }
 
@@ -188,14 +359,14 @@ button:not([class*="-btn"]):hover {
   border-color: var(--success-border);
 }
 .success-btn:hover {
-  background-color: #dcfce7;
-  border-color: #86efac;
+  background-color: var(--success-bg);
+  border-color: var(--success-border);
   transform: translateY(-1px);
   box-shadow: 0 2px 4px rgba(21, 128, 61, 0.1);
 }
 
 .danger-btn {
-  background-color: #fff;
+  background-color: var(--bg-card);
   color: var(--danger-text);
   border-color: var(--border-default);
 }
@@ -213,18 +384,18 @@ button:not([class*="-btn"]):hover {
   border-color: var(--warning-border);
 }
 .amber-btn:hover {
-  background-color: #fef3c7;
+  background-color: var(--warning-bg);
   transform: translateY(-1px);
   box-shadow: 0 2px 4px rgba(180, 83, 9, 0.1);
 }
 
 .rose-btn {
-  background-color: #fff1f2;
-  color: #be123c;
-  border-color: #fecdd3;
+  background-color: var(--underline-pill-bg);
+  color: var(--danger-text);
+  border-color: var(--danger-border);
 }
 .rose-btn:hover {
-  background-color: #ffe4e6;
+  background-color: var(--underline-pill-bg);
   transform: translateY(-1px);
   box-shadow: 0 2px 4px rgba(190, 18, 60, 0.1);
 }
@@ -240,15 +411,83 @@ button:not([class*="-btn"]):hover {
   color: var(--text-primary);
 }
 
-
 /* ── Layout Structure ── */
 
 .layout {
   display: grid;
-  grid-template-columns: 280px 1fr 340px;
+  grid-template-columns:
+    var(--controls-width, 280px)
+    minmax(0, 1fr)
+    var(--workspace-width, 340px);
+  /* Explicit areas: a panel that folds away or becomes a drawer leaves the
+     flow, and auto-placement would slide the reader into its empty track. */
+  grid-template-areas: "controls reader workspace";
   height: 100vh;
   overflow: hidden;
   background-color: var(--bg-app);
+  position: relative;
+}
+
+/* A folded panel gives its width back to the document rather than shrinking it. */
+.layout[data-controls="closed"] {
+  --controls-width: 0px;
+}
+
+.layout[data-workspace="closed"] {
+  --workspace-width: 0px;
+}
+
+.layout[data-controls="closed"] > .panel.controls,
+.layout[data-workspace="closed"] > .panel.workspace {
+  display: none;
+}
+
+/* Below the narrow breakpoint the panels stop competing for width entirely and
+   open over the reading surface instead. */
+.layout[data-tier="narrow"] {
+  --controls-width: 0px;
+  --workspace-width: 0px;
+}
+
+.layout[data-tier="narrow"] > .panel.controls,
+.layout[data-tier="narrow"] > .panel.workspace {
+  position: absolute;
+  /* Measured from the real toolbar, which wraps to two rows when space is tight. */
+  top: var(--toolbar-height, 52px);
+  bottom: 0;
+  z-index: 120;
+  width: min(340px, 88vw);
+  box-shadow: var(--shadow-popover);
+}
+
+.layout[data-tier="narrow"][data-controls="open"] > .panel.controls {
+  display: flex;
+  left: 0;
+}
+
+.layout[data-tier="narrow"][data-workspace="open"] > .panel.workspace {
+  display: flex;
+  right: 0;
+}
+
+.panel.controls {
+  grid-area: controls;
+}
+
+.panel.reader {
+  grid-area: reader;
+}
+
+.panel.workspace {
+  grid-area: workspace;
+}
+
+.panel-backdrop {
+  grid-area: reader;
+  position: absolute;
+  inset: var(--toolbar-height, 52px) 0 0 0;
+  z-index: 110;
+  background: var(--scrim);
 }
 
 .panel {
@@ -265,14 +504,15 @@ button:not([class*="-btn"]):hover {
   box-shadow: -4px 0 24px rgba(15, 23, 42, 0.02);
 }
 
-.controls, .workspace {
+.controls,
+.workspace {
   padding: 24px;
   gap: 24px;
 }
 
 .reader {
   padding: 0;
-  background-color: #eef2f6; /* Soft, very slightly blueish gray */
+  background-color: var(--bg-stage);
   position: relative;
   display: flex;
   flex-direction: column;
@@ -293,12 +533,15 @@ button:not([class*="-btn"]):hover {
   width: 40px;
   height: 40px;
   border-radius: 12px;
+  /* Brand gradient, deliberately identical in both themes. */
   background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
-  color: white;
+  color: #ffffff;
   display: grid;
   place-items: center;
   font-size: 20px;
-  box-shadow: 0 4px 10px rgba(79, 70, 229, 0.3), inset 0 2px 4px rgba(255, 255, 255, 0.2);
+  box-shadow:
+    0 4px 10px rgba(79, 70, 229, 0.3),
+    inset 0 2px 4px rgba(255, 255, 255, 0.2);
   transform: translateZ(0);
 }
 
@@ -321,7 +564,9 @@ button:not([class*="-btn"]):hover {
   border-radius: var(--radius-lg);
   padding: 20px;
   box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
 
 .card-boxed:hover {
@@ -333,7 +578,7 @@ button:not([class*="-btn"]):hover {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding-left: 4px; 
+  padding-left: 4px;
 }
 
 /* ── Collapsible Details ── */
@@ -379,19 +624,20 @@ button:not([class*="-btn"]):hover {
   color: var(--text-secondary);
 }
 
-
 /* ── Toolbar (Reader) ── */
 
 .reader-toolbar {
-  background-color: rgba(255, 255, 255, 0.65);
+  background-color: var(--bg-toolbar);
   backdrop-filter: blur(20px) saturate(140%);
   -webkit-backdrop-filter: blur(20px) saturate(140%);
-  border-bottom: 1px solid rgba(15, 23, 42, 0.05);
-  padding: 12px 24px;
+  border-bottom: 1px solid var(--border-hairline);
+  padding: 10px 16px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 20px;
+  gap: 12px;
+  /* Wrapping costs a row of height; squeezing costs the reader a control. */
+  flex-wrap: wrap;
+  row-gap: 8px;
   z-index: 10;
   box-shadow: 0 4px 20px rgba(15, 23, 42, 0.03);
   position: sticky;
@@ -405,63 +651,39 @@ button:not([class*="-btn"]):hover {
 }
 
 .toolbar-divider {
+  flex: none;
   width: 1px;
   height: 28px;
   background-color: var(--border-default);
   margin: 0 8px;
 }
 
-.search-toggle-btn {
-  position: absolute;
-  top: 80px;
-  right: 32px;
-  z-index: 50;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: var(--radius-md);
-  padding: 10px 12px;
-  box-shadow: var(--shadow-md);
-  color: var(--text-secondary);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.search-toggle-btn:hover {
-  background: #ffffff;
-  color: var(--text-primary);
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-1px);
-}
-
-.search-toolbar {
-  position: absolute;
-  top: 80px;
-  right: 32px;
-  z-index: 50;
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: var(--radius-lg);
-  padding: 8px;
-  box-shadow: var(--shadow-popover);
+/* Search lives in the toolbar's middle, where there was dead space, instead of
+   floating over the page it is searching. */
+.toolbar-search {
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: 380px;
-  animation: popIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 150px;
+  max-width: 460px;
 }
 
-.search-toolbar input {
-  border: none;
-  background: transparent;
-  padding: 8px 10px;
-  box-shadow: none;
-  font-size: 0.95rem;
+.toolbar-search input {
+  flex: 1 1 auto;
+  /* Below this the field stops being a field; other groups give way first. */
+  min-width: 120px;
+  padding: 7px 12px;
+  font-size: 0.9rem;
 }
-.search-toolbar input:focus {
-  box-shadow: none;
+
+.toolbar-search .search-info {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.toolbar-trailing {
+  margin-left: auto;
 }
 
 /* ── PDF Stage ── */
@@ -479,17 +701,19 @@ button:not([class*="-btn"]):hover {
 
 .pdf-document-container {
   position: relative;
-  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(15, 23, 42, 0.03);
+  box-shadow: var(--page-shadow);
   border-radius: 4px;
-  overflow: hidden; 
-  background-color: #fff;
+  overflow: hidden;
+  /* The paper is white in both themes: this is the document, not chrome. */
+  background-color: #ffffff;
 }
 
 #pdfCanvas {
   display: block;
 }
 
-.text-layer, .annotation-layer {
+.text-layer,
+.annotation-layer {
   position: absolute;
   inset: 0;
   line-height: 1;
@@ -508,6 +732,19 @@ button:not([class*="-btn"]):hover {
   white-space: pre;
   transform-origin: 0% 0%;
   cursor: text;
+}
+
+/* Search hits live on the transparent text layer, so they multiply over the
+   rendered page the same way annotation marks do. */
+.text-layer span.search-hit {
+  background-color: var(--search-hit-color);
+  border-radius: 2px;
+}
+
+.text-layer span.current-hit {
+  background-color: var(--search-hit-current-color);
+  box-shadow: 0 0 0 2px var(--search-hit-current-border);
+  border-radius: 2px;
 }
 
 .annotation-layer {
@@ -537,7 +774,6 @@ button:not([class*="-btn"]):hover {
   box-shadow: var(--shadow-glow);
 }
 
-
 /* ── Lists & Items ── */
 
 .list {
@@ -551,7 +787,7 @@ button:not([class*="-btn"]):hover {
 
 .list li {
   padding: 12px 14px;
-  background-color: #fff;
+  background-color: var(--bg-card);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   cursor: pointer;
@@ -562,7 +798,7 @@ button:not([class*="-btn"]):hover {
 
 .list li:hover {
   background-color: var(--bg-hover);
-  border-color: #cbd5e1;
+  border-color: var(--border-strong);
   transform: translateY(-1px);
   box-shadow: var(--shadow-sm);
 }
@@ -571,7 +807,19 @@ button:not([class*="-btn"]):hover {
 .list li.selected {
   background-color: var(--bg-selected);
   border-color: var(--accent-border);
-  box-shadow: 0 0 0 1px var(--accent-border), 0 2px 4px rgba(79, 70, 229, 0.05);
+  box-shadow:
+    0 0 0 1px var(--accent-border),
+    0 2px 4px rgba(79, 70, 229, 0.05);
+}
+
+/* A quote can be a whole paragraph; the list shows an excerpt and the selected
+   annotation shows all of it. */
+.list li:not(.selected) .quote-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .quote-text {
@@ -584,7 +832,9 @@ button:not([class*="-btn"]):hover {
   border-left: 3px solid var(--border-default);
 }
 
-.page-info, .zoom-info, .search-info {
+.page-info,
+.zoom-info,
+.search-info {
   font-family: "IBM Plex Mono", Consolas, monospace;
   font-size: 0.8rem;
   color: var(--text-secondary);
@@ -604,15 +854,15 @@ button:not([class*="-btn"]):hover {
 }
 
 .ann-type.highlight {
-  background-color: #fef9c3; /* yellow-100 */
-  color: #854d0e; /* yellow-800 */
-  border: 1px solid #fde047; /* yellow-300 */
+  background-color: var(--annotation-pill-bg);
+  color: var(--annotation-pill-text);
+  border: 1px solid var(--annotation-pill-border);
 }
 
 .ann-type.underline {
-  background-color: #ffe4e6; /* rose-100 */
-  color: #be123c; /* rose-700 */
-  border: 1px solid #fda4af; /* rose-300 */
+  background-color: var(--underline-pill-bg); /* rose-100 */
+  color: var(--danger-text); /* rose-700 */
+  border: 1px solid var(--danger-border);
 }
 
 .ann-page {
@@ -626,6 +876,102 @@ button:not([class*="-btn"]):hover {
 .compact-list li {
   padding: 8px 12px;
   font-size: 0.85rem;
+}
+
+/* Recent rows name the paper and the file; the full path is in the tooltip. */
+.recent-ref {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Session card ── */
+
+.session-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.session-summary-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.status-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success-text);
+}
+
+.session-paper-ref {
+  font-weight: 600;
+  font-size: 0.95rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-close-btn {
+  margin-left: auto;
+  flex: none;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+}
+
+.session-status {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.session-details > summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--accent-primary);
+  list-style: none;
+  padding: 4px 0;
+}
+
+.session-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.session-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+.session-id {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+}
+
+.session-id-value {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.count-pill {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Chips & Pills ── */
@@ -644,7 +990,7 @@ button:not([class*="-btn"]):hover {
 }
 
 .pill:hover {
-  background-color: #e2e8f0;
+  background-color: var(--bg-active);
   color: var(--text-primary);
 }
 
@@ -661,12 +1007,21 @@ button:not([class*="-btn"]):hover {
   align-items: center;
   font-size: 0.85rem;
   padding: 8px 0;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.05);
+  border-bottom: 1px solid var(--border-hairline);
 }
-.info-chip:last-child { border-bottom: none; }
+.info-chip:last-child {
+  border-bottom: none;
+}
 
-.info-chip-label { color: var(--text-secondary); font-weight: 500; }
-.info-chip-value { color: var(--text-primary); font-family: "IBM Plex Mono", Consolas, monospace; font-weight: 500; }
+.info-chip-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.info-chip-value {
+  color: var(--text-primary);
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-weight: 500;
+}
 
 .info-row {
   background: var(--bg-hover);
@@ -695,20 +1050,27 @@ button:not([class*="-btn"]):hover {
 }
 
 @keyframes popIn {
-  0% { opacity: 0; transform: scale(0.95) translateY(6px); }
-  100% { opacity: 1; transform: scale(1) translateY(0); }
+  0% {
+    opacity: 0;
+    transform: scale(0.95) translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
-
 
 /* ── Toasts ── */
 
 .toast-stack {
   position: fixed;
-  bottom: 32px;
-  right: 32px;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  align-items: center;
+  gap: 10px;
   z-index: 200;
   pointer-events: none;
 }
@@ -727,19 +1089,115 @@ button:not([class*="-btn"]):hover {
   display: flex;
   align-items: center;
   gap: 12px;
-  animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  min-width: 300px;
+  animation: toastRise 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  min-width: 260px;
+  justify-content: center;
 }
 
-.toast.success { background: rgba(5, 150, 105, 0.95); /* emerald-600 */ }
-.toast.error { background: rgba(220, 38, 38, 0.95); /* red-600 */ }
-.toast.warning { background: rgba(217, 119, 6, 0.95); /* amber-600 */ }
-
-@keyframes slideIn {
-  0% { transform: translateX(120%) scale(0.95); opacity: 0; }
-  100% { transform: translateX(0) scale(1); opacity: 1; }
+.toast.success {
+  background: rgba(5, 150, 105, 0.95); /* emerald-600 */
+}
+.toast.error {
+  background: rgba(220, 38, 38, 0.95); /* red-600 */
+}
+.toast.warning {
+  background: rgba(217, 119, 6, 0.95); /* amber-600 */
 }
 
+@keyframes toastRise {
+  0% {
+    transform: translateY(10px) scale(0.98);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* ── Shortcut help ── */
+
+.shortcut-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: var(--scrim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.shortcut-dialog {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
+  padding: 20px 24px;
+  width: min(420px, 100%);
+}
+
+.shortcut-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.shortcut-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.shortcut-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shortcut-row {
+  display: grid;
+  grid-template-columns: 8.5rem 1fr;
+  gap: 12px;
+  align-items: baseline;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.shortcut-row dd {
+  margin: 0;
+}
+
+.shortcut-row kbd {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+  background: var(--bg-active);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  padding: 2px 6px;
+  color: var(--text-primary);
+}
+
+/* ── Accessibility ── */
+
+:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 /* ── Utility ── */
 
@@ -790,7 +1248,9 @@ button:not([class*="-btn"]):hover {
 }
 
 @keyframes fadeIn {
-  to { opacity: 1; }
+  to {
+    opacity: 1;
+  }
 }
 
 .stage-loading::after {
@@ -804,7 +1264,9 @@ button:not([class*="-btn"]):hover {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .outline-btn {
@@ -836,8 +1298,40 @@ button:not([class*="-btn"]):hover {
 
 /* ── Media Queries ── */
 
-@media (max-width: 1024px) {
+@media (max-width: 1400px) {
   .layout {
-    grid-template-columns: 260px 1fr 320px;
+    --controls-width: 260px;
+    --workspace-width: 320px;
+  }
+}
+
+/* Narrow bars drop only what is duplicated elsewhere: the zoom read-out (the
+   buttons stay), the "Go" button (Enter still works), and the page-count label
+   (the page input carries it). No control becomes unreachable. */
+@media (max-width: 1100px) {
+  .reader-toolbar {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  /* Search takes the second row rather than shrinking the zoom group away. */
+  .toolbar-search {
+    order: 10;
+    flex: 1 0 100%;
+    max-width: none;
+  }
+
+  .toolbar-search + .toolbar-divider {
+    display: none;
+  }
+
+  .reader-toolbar .toolbar-divider {
+    margin: 0 2px;
+  }
+
+  #zoomInfo,
+  #pageJumpBtn,
+  #pageInfo {
+    display: none;
   }
 }

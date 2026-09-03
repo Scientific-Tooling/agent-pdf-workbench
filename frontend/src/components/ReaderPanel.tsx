@@ -1,9 +1,9 @@
-import { useState, type RefObject } from "react";
+import type { RefObject } from "react";
 
-import type { PdfDocumentLike } from "../app/app-types";
+import type { PDFDocumentProxy } from "../types/pdfjs-types";
 
 interface ReaderPanelProps {
-  pdfDoc: PdfDocumentLike | null;
+  pdfDoc: PDFDocumentProxy | null;
   page: number;
   pageJumpInput: string;
   zoom: number;
@@ -20,6 +20,7 @@ interface ReaderPanelProps {
   quickCommentInput: string;
   hasPendingSelection: boolean;
   searchInputRef: RefObject<HTMLInputElement | null>;
+  toolbarRef: RefObject<HTMLDivElement | null>;
   pdfStageRef: RefObject<HTMLDivElement | null>;
   pdfCanvasRef: RefObject<HTMLCanvasElement | null>;
   textLayerRef: RefObject<HTMLDivElement | null>;
@@ -28,6 +29,15 @@ interface ReaderPanelProps {
   onPageJumpInputChange: (value: string) => void;
   onSearchInputValueChange: (value: string) => void;
   onQuickCommentInputChange: (value: string) => void;
+  controlsOpen: boolean;
+  /** With no paper open the session panel stays put, so the toggle would lie. */
+  canToggleControls: boolean;
+  workspaceOpen: boolean;
+  onToggleControls: () => void;
+  onToggleWorkspace: () => void;
+  themeLabel: string;
+  onCycleTheme: () => void;
+  onShowShortcuts: () => void;
   onGoPrevPage: () => Promise<void>;
   onGoNextPage: () => Promise<void>;
   onJumpToPageInput: () => Promise<void>;
@@ -44,8 +54,6 @@ interface ReaderPanelProps {
 }
 
 export function ReaderPanel(props: ReaderPanelProps) {
-  const [searchExpanded, setSearchExpanded] = useState(false);
-
   const {
     pdfDoc,
     page,
@@ -64,6 +72,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
     quickCommentInput,
     hasPendingSelection,
     searchInputRef,
+    toolbarRef,
     pdfStageRef,
     pdfCanvasRef,
     textLayerRef,
@@ -72,6 +81,14 @@ export function ReaderPanel(props: ReaderPanelProps) {
     onPageJumpInputChange,
     onSearchInputValueChange,
     onQuickCommentInputChange,
+    controlsOpen,
+    canToggleControls,
+    workspaceOpen,
+    onToggleControls,
+    onToggleWorkspace,
+    themeLabel,
+    onCycleTheme,
+    onShowShortcuts,
     onGoPrevPage,
     onGoNextPage,
     onJumpToPageInput,
@@ -88,14 +105,35 @@ export function ReaderPanel(props: ReaderPanelProps) {
   } = props;
 
   return (
-    <section className="panel reader">
-      <div className="toolbar reader-toolbar">
+    <section className="panel reader" aria-label="Document reader">
+      <div className="toolbar reader-toolbar" ref={toolbarRef}>
+        <button
+          id="toggleControlsBtn"
+          className="ghost-btn icon-btn"
+          title={
+            canToggleControls
+              ? controlsOpen
+                ? "Hide session panel"
+                : "Show session panel"
+              : "Open a paper to fold this panel away"
+          }
+          aria-label={controlsOpen ? "Hide session panel" : "Show session panel"}
+          aria-expanded={controlsOpen}
+          disabled={!canToggleControls}
+          onClick={onToggleControls}
+        >
+          ☰
+        </button>
+
+        <div className="toolbar-divider" />
+
         {/* Page navigation */}
         <div className="row">
           <button
             id="prevBtn"
             className="ghost-btn icon-btn"
             title="Previous page (j)"
+            aria-label="Previous page"
             onClick={async () => {
               try {
                 await onGoPrevPage();
@@ -110,6 +148,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
             id="nextBtn"
             className="ghost-btn icon-btn"
             title="Next page (k)"
+            aria-label="Next page"
             onClick={async () => {
               try {
                 await onGoNextPage();
@@ -165,55 +204,18 @@ export function ReaderPanel(props: ReaderPanelProps) {
 
         <div className="toolbar-divider" />
 
-        {/* Zoom */}
-        <div className="row">
-          <button
-            id="zoomOutBtn"
-            className="ghost-btn icon-btn"
-            title="Zoom out"
-            onClick={async () => onApplyZoom(zoom - 0.2)}
-          >
-            −
-          </button>
-          <span id="zoomInfo" className="zoom-info">
-            {`${Math.round(zoom * 100)}%`}
-          </span>
-          <button
-            id="zoomInBtn"
-            className="ghost-btn icon-btn"
-            title="Zoom in"
-            onClick={async () => onApplyZoom(zoom + 0.2)}
-          >
-            +
-          </button>
-          <button
-            id="fitWidthBtn"
-            className="ghost-btn"
-            onClick={async () => {
-              try {
-                await onFitWidth();
-              } catch (error) {
-                onError(error, "Failed to fit width");
-              }
-            }}
-          >
-            Fit Width
-          </button>
-        </div>
-      </div>
-
-      {/* Search area */}
-      {searchExpanded ? (
-        <div className="search-toolbar">
+        <div className="toolbar-search">
           <input
             id="searchInput"
             ref={searchInputRef}
-            placeholder="Find…"
+            placeholder="Find in document (f)"
+            aria-label="Find in document"
             value={searchInputValue}
             onChange={(event) => onSearchInputValueChange(event.target.value)}
             onKeyDown={async (event) => {
               if (event.key === "Escape") {
-                setSearchExpanded(false);
+                onSearchInputValueChange("");
+                await onRunSearch("");
                 return;
               }
               if (event.key !== "Enter") {
@@ -236,16 +238,38 @@ export function ReaderPanel(props: ReaderPanelProps) {
               await onRunSearch(query);
             }}
           />
-          <button id="searchBtn" title="Search" onClick={async () => onRunSearch(searchInputValue)}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8"/>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          <button
+            id="searchBtn"
+            className="ghost-btn icon-btn"
+            title="Search"
+            aria-label="Search"
+            onClick={async () => onRunSearch(searchInputValue)}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
           </button>
+          {searchInfoText && (
+            <span id="searchInfo" className="search-info">
+              {searchInfoText}
+            </span>
+          )}
           <button
             id="searchPrevBtn"
             className="ghost-btn icon-btn"
             title="Previous match (Shift+Enter)"
+            aria-label="Previous match"
             onClick={async () => onJumpToSearchResult(searchCursor - 1)}
           >
             ‹
@@ -254,39 +278,84 @@ export function ReaderPanel(props: ReaderPanelProps) {
             id="searchNextBtn"
             className="ghost-btn icon-btn"
             title="Next match (Enter)"
+            aria-label="Next match"
             onClick={async () => onJumpToSearchResult(searchCursor + 1)}
           >
             ›
           </button>
-          {searchInfoText && (
-            <span id="searchInfo" className="search-info">
-              {searchInfoText}
-            </span>
-          )}
+        </div>
+
+        <div className="toolbar-divider" />
+
+        {/* Zoom */}
+        <div className="row">
           <button
+            id="zoomOutBtn"
             className="ghost-btn icon-btn"
-            title="Close search (Esc)"
-            onClick={() => setSearchExpanded(false)}
+            title="Zoom out"
+            aria-label="Zoom out"
+            onClick={async () => onApplyZoom(zoom - 0.2)}
           >
-            ✕
+            −
+          </button>
+          <span id="zoomInfo" className="zoom-info">
+            {`${Math.round(zoom * 100)}%`}
+          </span>
+          <button
+            id="zoomInBtn"
+            className="ghost-btn icon-btn"
+            title="Zoom in"
+            aria-label="Zoom in"
+            onClick={async () => onApplyZoom(zoom + 0.2)}
+          >
+            +
+          </button>
+          <button
+            id="fitWidthBtn"
+            className="ghost-btn"
+            onClick={async () => {
+              try {
+                await onFitWidth();
+              } catch (error) {
+                onError(error, "Failed to fit width");
+              }
+            }}
+          >
+            Fit Width
           </button>
         </div>
-      ) : (
+
         <button
-          id="searchToggleBtn"
-          className="search-toggle-btn"
-          title="Search"
-          onClick={() => {
-            setSearchExpanded(true);
-            setTimeout(() => searchInputRef.current?.focus(), 0);
-          }}
+          id="shortcutsBtn"
+          className="ghost-btn icon-btn toolbar-trailing"
+          title="Keyboard shortcuts (?)"
+          aria-label="Keyboard shortcuts"
+          onClick={onShowShortcuts}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8"/>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
+          ?
         </button>
-      )}
+
+        <button
+          id="themeBtn"
+          className="ghost-btn icon-btn"
+          title={themeLabel}
+          aria-label={themeLabel}
+          onClick={onCycleTheme}
+        >
+          ◐
+        </button>
+
+        <button
+          id="toggleWorkspaceBtn"
+          className="ghost-btn icon-btn"
+          title={workspaceOpen ? "Hide workspace panel" : "Show workspace panel"}
+          aria-label={workspaceOpen ? "Hide workspace panel" : "Show workspace panel"}
+          aria-expanded={workspaceOpen}
+          onClick={onToggleWorkspace}
+        >
+          ⧉
+        </button>
+      </div>
 
       {/* PDF Stage */}
       <div id="pdfStage" ref={pdfStageRef} className="pdf-stage">
@@ -357,7 +426,11 @@ export function ReaderPanel(props: ReaderPanelProps) {
             >
               Underline
             </button>
-            <button id="quickDismissBtn" className="ghost-btn" onClick={() => onHideQuickAnnotator()}>
+            <button
+              id="quickDismissBtn"
+              className="ghost-btn"
+              onClick={() => onHideQuickAnnotator()}
+            >
               ✕
             </button>
           </div>

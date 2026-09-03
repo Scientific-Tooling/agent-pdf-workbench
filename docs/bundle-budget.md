@@ -7,6 +7,17 @@ search, export, and local workspace behavior. A single 500 kB JavaScript budget
 is too tight for that scope, so the build now uses explicit chunks and a
 documented warning threshold.
 
+## Current Sizes
+
+Measured after `npm run build:frontend` (pdf.js 6, Vite 8):
+
+| Asset | Size | Notes |
+|---|---|---|
+| `app.js` | ~50 kB | application code, well under budget |
+| `react-*.js` | ~185 kB | React + React DOM |
+| `pdfjs-*.js` | ~421 kB | PDF.js main thread |
+| `pdf.worker.min-*.mjs` | ~1.24 MB | loaded by the worker, not the page |
+
 ## Current Policy
 
 - Main app entry chunk target: below 700 kB minified.

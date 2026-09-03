@@ -37,7 +37,7 @@ export function ControlPanel(props: ControlPanelProps) {
   } = props;
 
   return (
-    <aside className="panel controls">
+    <aside className="panel controls" aria-label="Session and navigation">
       <div className="app-header">
         <div className="app-logo">📄</div>
         <h1>PDF Workbench</h1>
@@ -66,7 +66,7 @@ export function ControlPanel(props: ControlPanelProps) {
                 Close
               </button>
             </div>
-            <div id="statusText" className="session-status">
+            <div id="statusText" className="session-status" role="status" aria-live="polite">
               {status}
             </div>
             <details className="session-details">
@@ -168,7 +168,7 @@ export function ControlPanel(props: ControlPanelProps) {
               </div>
               <div className="info-chip">
                 <span className="info-chip-label">Status</span>
-                <span id="statusText" className="info-chip-value">
+                <span id="statusText" className="info-chip-value" role="status" aria-live="polite">
                   {status}
                 </span>
               </div>

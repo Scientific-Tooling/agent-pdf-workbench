@@ -3,6 +3,7 @@ import type { ReadingProgress, RecentPaper } from "../types/types";
 const PROGRESS_KEY = "apw:reading-progress:v1";
 const RECENT_KEY = "apw:recent-papers:v1";
 const PANELS_KEY = "apw:panel-layout:v1";
+const THEME_KEY = "apw:theme:v1";
 const MAX_RECENT = 12;
 
 function readJson<T>(key: string, fallback: T): T {
@@ -69,4 +70,13 @@ export function getPanelLayout(): StoredPanelLayout | null {
 
 export function savePanelLayout(layout: StoredPanelLayout): void {
   writeJson(PANELS_KEY, layout);
+}
+
+export function getThemeChoice(): "system" | "light" | "dark" | null {
+  const stored = readJson<string | null>(THEME_KEY, null);
+  return stored === "light" || stored === "dark" || stored === "system" ? stored : null;
+}
+
+export function saveThemeChoice(choice: "system" | "light" | "dark"): void {
+  writeJson(THEME_KEY, choice);
 }

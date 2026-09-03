@@ -394,10 +394,38 @@ again rather than by testing:
   after selecting. Probing the real path showed four non-zero rects and a
   working quick annotator. No defect.
 
+## Batch 4 Outcome (2026-09-02)
+
+Done:
+
+- Every colour in the stylesheet now comes from a token. 22 literals were
+  inlined in rules — including three surfaces pinned to `#fff`, which is what
+  would have left light cards under dark text.
+- A dark palette redefines those tokens under
+  `prefers-color-scheme: dark` (guarded so an explicit light choice still wins)
+  and again under `:root[data-theme="dark"]`, so a manual choice overrides the
+  OS in both directions. The choice persists.
+- The PDF page keeps its paper white in both themes: it is the document, not
+  chrome. Only the stage around it darkens.
+- Contrast was measured, not eyeballed. Muted text failed WCAG AA in light mode
+  (2.56:1 as slate-400, still 4.34:1 as slate-500 on the row background it
+  actually sits on) and was darkened to clear AA on every surface it lands on;
+  the dark equivalent was raised for the same reason.
+- Icon-only controls carry `aria-label`s, the status line is an `aria-live`
+  region, panels are named landmarks, `:focus-visible` has a visible ring, and
+  `prefers-reduced-motion` disables transitions, animations and the
+  scroll-into-view added in batch 1.
+- A `?` overlay lists the shortcuts, reachable by key or by toolbar button —
+  the shortcuts existed but nothing in the UI ever said so.
+
+Five E2E tests in `frontend/e2e/theme-a11y.spec.ts` cover it, including a
+contrast report computed from live computed styles in both schemes, so a token
+change that pushes text under AA fails the build rather than shipping.
+
 ## Tracking Checklist
 
 - [x] Batch 1: search hits visible and scrolled into view; toasts coalesced.
 - [x] Batch 2: responsive breakpoints, collapsible panels, toolbar wrapping.
 - [x] Batch 3: sidebar hierarchy, paths and empty states.
-- [ ] Batch 4: dark theme, accessible names, shortcuts, reduced motion.
+- [x] Batch 4: dark theme, accessible names, shortcuts, reduced motion.
 - [ ] Batch 5: continuous scrolling reader.

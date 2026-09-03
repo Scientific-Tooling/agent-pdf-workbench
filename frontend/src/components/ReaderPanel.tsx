@@ -35,6 +35,9 @@ interface ReaderPanelProps {
   workspaceOpen: boolean;
   onToggleControls: () => void;
   onToggleWorkspace: () => void;
+  themeLabel: string;
+  onCycleTheme: () => void;
+  onShowShortcuts: () => void;
   onGoPrevPage: () => Promise<void>;
   onGoNextPage: () => Promise<void>;
   onJumpToPageInput: () => Promise<void>;
@@ -83,6 +86,9 @@ export function ReaderPanel(props: ReaderPanelProps) {
     workspaceOpen,
     onToggleControls,
     onToggleWorkspace,
+    themeLabel,
+    onCycleTheme,
+    onShowShortcuts,
     onGoPrevPage,
     onGoNextPage,
     onJumpToPageInput,
@@ -99,7 +105,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
   } = props;
 
   return (
-    <section className="panel reader">
+    <section className="panel reader" aria-label="Document reader">
       <div className="toolbar reader-toolbar" ref={toolbarRef}>
         <button
           id="toggleControlsBtn"
@@ -111,6 +117,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
                 : "Show session panel"
               : "Open a paper to fold this panel away"
           }
+          aria-label={controlsOpen ? "Hide session panel" : "Show session panel"}
           aria-expanded={controlsOpen}
           disabled={!canToggleControls}
           onClick={onToggleControls}
@@ -126,6 +133,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
             id="prevBtn"
             className="ghost-btn icon-btn"
             title="Previous page (j)"
+            aria-label="Previous page"
             onClick={async () => {
               try {
                 await onGoPrevPage();
@@ -140,6 +148,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
             id="nextBtn"
             className="ghost-btn icon-btn"
             title="Next page (k)"
+            aria-label="Next page"
             onClick={async () => {
               try {
                 await onGoNextPage();
@@ -284,6 +293,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
             id="zoomOutBtn"
             className="ghost-btn icon-btn"
             title="Zoom out"
+            aria-label="Zoom out"
             onClick={async () => onApplyZoom(zoom - 0.2)}
           >
             −
@@ -295,6 +305,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
             id="zoomInBtn"
             className="ghost-btn icon-btn"
             title="Zoom in"
+            aria-label="Zoom in"
             onClick={async () => onApplyZoom(zoom + 0.2)}
           >
             +
@@ -315,9 +326,30 @@ export function ReaderPanel(props: ReaderPanelProps) {
         </div>
 
         <button
-          id="toggleWorkspaceBtn"
+          id="shortcutsBtn"
           className="ghost-btn icon-btn toolbar-trailing"
+          title="Keyboard shortcuts (?)"
+          aria-label="Keyboard shortcuts"
+          onClick={onShowShortcuts}
+        >
+          ?
+        </button>
+
+        <button
+          id="themeBtn"
+          className="ghost-btn icon-btn"
+          title={themeLabel}
+          aria-label={themeLabel}
+          onClick={onCycleTheme}
+        >
+          ◐
+        </button>
+
+        <button
+          id="toggleWorkspaceBtn"
+          className="ghost-btn icon-btn"
           title={workspaceOpen ? "Hide workspace panel" : "Show workspace panel"}
+          aria-label={workspaceOpen ? "Hide workspace panel" : "Show workspace panel"}
           aria-expanded={workspaceOpen}
           onClick={onToggleWorkspace}
         >

@@ -8,6 +8,7 @@ interface UseGlobalWorkspaceShortcutsParams {
   onHideQuickAnnotator: () => void;
   onGoNextPage: () => Promise<void>;
   onGoPrevPage: () => Promise<void>;
+  onToggleShortcuts: () => void;
 }
 
 export function useGlobalWorkspaceShortcuts(params: UseGlobalWorkspaceShortcutsParams) {
@@ -18,6 +19,7 @@ export function useGlobalWorkspaceShortcuts(params: UseGlobalWorkspaceShortcutsP
     onHideQuickAnnotator,
     onGoNextPage,
     onGoPrevPage,
+    onToggleShortcuts,
   } = params;
 
   useEffect(() => {
@@ -66,6 +68,11 @@ export function useGlobalWorkspaceShortcuts(params: UseGlobalWorkspaceShortcutsP
         await onGoPrevPage();
         return;
       }
+      if (event.key === "?") {
+        event.preventDefault();
+        onToggleShortcuts();
+        return;
+      }
       if (event.key === "f" || event.key === "/") {
         event.preventDefault();
         focusSearch();
@@ -87,6 +94,7 @@ export function useGlobalWorkspaceShortcuts(params: UseGlobalWorkspaceShortcutsP
     onGoNextPage,
     onGoPrevPage,
     onHideQuickAnnotator,
+    onToggleShortcuts,
     quickAnnotatorRef,
     searchInputRef,
     textLayerRef,

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ControlPanel } from "../components/ControlPanel";
 import { ReaderPanel } from "../components/ReaderPanel";
+import { ShortcutHelp } from "../components/ShortcutHelp";
 import { ToastStack } from "../components/ToastStack";
 import { WorkspacePanel } from "../components/WorkspacePanel";
 import { useGlobalWorkspaceShortcuts } from "../hooks/useGlobalWorkspaceShortcuts";
@@ -24,6 +25,7 @@ import { upsertProgress, upsertRecentPaper } from "../services/storage";
 import { useWorkspaceSelection } from "./useWorkspaceSelection";
 import type { PaperSession } from "../types/types";
 import { usePanelLayout } from "./usePanelLayout";
+import { THEME_LABELS, useTheme } from "./useTheme";
 import { usePaperSession } from "./usePaperSession";
 import { usePdfReader } from "./usePdfReader";
 import type { OpenDocument } from "./usePdfReader";
@@ -40,6 +42,8 @@ export function App() {
   const [pendingSelection, setPendingSelection] = useState<PendingSelection | null>(null);
 
   const { toasts, showToast } = useToastStack();
+  const { theme, cycleTheme } = useTheme();
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const sessionRef = useRef<PaperSession | null>(null);
   const {
     annotations,
@@ -413,6 +417,7 @@ export function App() {
     onHideQuickAnnotator: hideQuickAnnotator,
     onGoNextPage: goNextPage,
     onGoPrevPage: goPrevPage,
+    onToggleShortcuts: () => setShortcutsOpen((open) => !open),
   });
 
   async function handleTextLayerCopy(): Promise<void> {
@@ -491,6 +496,9 @@ export function App() {
           workspaceOpen={workspaceOpen}
           onToggleControls={toggleControls}
           onToggleWorkspace={toggleWorkspace}
+          themeLabel={THEME_LABELS[theme]}
+          onCycleTheme={cycleTheme}
+          onShowShortcuts={() => setShortcutsOpen(true)}
           pdfDoc={pdfDoc}
           page={page}
           pageJumpInput={pageJumpInput}
@@ -568,6 +576,7 @@ export function App() {
         />
       </main>
 
+      <ShortcutHelp open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <ToastStack toasts={toasts} />
     </>
   );

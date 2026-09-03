@@ -73,7 +73,7 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
   } = props;
 
   return (
-    <aside className="panel workspace">
+    <aside className="panel workspace" aria-label="Annotations, notes and export">
       {/* Annotation section */}
       <details className="card collapsible" open>
         <summary>

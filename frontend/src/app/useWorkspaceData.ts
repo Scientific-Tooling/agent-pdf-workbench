@@ -34,6 +34,10 @@ export function useWorkspaceData(params: WorkspaceDataParams) {
   const domainRefreshPromiseRef = useRef<Promise<void> | null>(null);
   const domainRefreshSessionRef = useRef<string | null>(null);
 
+  function isCurrentSession(sessionId: string): boolean {
+    return sessionRef.current?.id === sessionId;
+  }
+
   function clearWorkspaceData(): void {
     setAnnotations([]);
     setSelectedAnnotationId(null);
@@ -68,7 +72,9 @@ export function useWorkspaceData(params: WorkspaceDataParams) {
         payload,
         source: "viewer",
       });
-      upsertEvent(event);
+      if (isCurrentSession(sid)) {
+        upsertEvent(event);
+      }
       return event;
     } catch (error) {
       onErrorRef.current(`record_action failed: ${errorMessage(error)}`);
@@ -100,6 +106,9 @@ export function useWorkspaceData(params: WorkspaceDataParams) {
       const data = await apiGet<ListActionsResponse>(
         `/api/list-actions?session_id=${encodeURIComponent(sid)}&limit=1000${afterQuery}`,
       );
+      if (!isCurrentSession(sid)) {
+        return;
+      }
       fetched.push(...data.events);
       if (!data.has_more || data.next_after_id === null) {
         break;
@@ -107,10 +116,16 @@ export function useWorkspaceData(params: WorkspaceDataParams) {
       afterId = data.next_after_id;
     }
     if (!incremental) {
+      if (!isCurrentSession(sid)) {
+        return;
+      }
       setEvents(fetched);
       return;
     }
     if (fetched.length === 0) {
+      return;
+    }
+    if (!isCurrentSession(sid)) {
       return;
     }
     setEvents((prev) => {
@@ -133,6 +148,9 @@ export function useWorkspaceData(params: WorkspaceDataParams) {
       const data = await apiGet<ListAnnotationsResponse>(
         `/api/annotations?session_id=${encodeURIComponent(sid)}&limit=1000&offset=${offset}`,
       );
+      if (!isCurrentSession(sid)) {
+        return;
+      }
       for (const raw of data.annotations) {
         const parsed = asAnnotationRecord(raw);
         if (parsed) {
@@ -143,6 +161,9 @@ export function useWorkspaceData(params: WorkspaceDataParams) {
         break;
       }
       offset = data.next_offset;
+    }
+    if (!isCurrentSession(sid)) {
+      return;
     }
     setAnnotations(next);
     setSelectedAnnotationId((prev) => {
@@ -164,6 +185,9 @@ export function useWorkspaceData(params: WorkspaceDataParams) {
       const data = await apiGet<ListNotesResponse>(
         `/api/notes?session_id=${encodeURIComponent(sid)}&limit=1000&offset=${offset}`,
       );
+      if (!isCurrentSession(sid)) {
+        return;
+      }
       for (const raw of data.notes) {
         const parsed = asNoteRecord(raw);
         if (parsed) {
@@ -174,6 +198,9 @@ export function useWorkspaceData(params: WorkspaceDataParams) {
         break;
       }
       offset = data.next_offset;
+    }
+    if (!isCurrentSession(sid)) {
+      return;
     }
     setNotes(next);
     setSelectedNoteId((prev) => {

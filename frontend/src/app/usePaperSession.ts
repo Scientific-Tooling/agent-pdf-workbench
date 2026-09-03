@@ -52,6 +52,16 @@ export function usePaperSession(params: PaperSessionParams) {
   const [paperRef, setPaperRef] = useState("p_demo_001");
   const [pdfUri, setPdfUri] = useState("/tmp/paper.pdf");
   const [recentPapers, setRecentPapersState] = useState<RecentPaper[]>(() => getRecentPapers());
+  const transitionRef = useRef(0);
+
+  function beginTransition(): number {
+    transitionRef.current += 1;
+    return transitionRef.current;
+  }
+
+  function isCurrentTransition(transitionId: number): boolean {
+    return transitionRef.current === transitionId;
+  }
 
   function refreshRecentPapers(): void {
     setRecentPapersState(getRecentPapers());
@@ -69,12 +79,15 @@ export function usePaperSession(params: PaperSessionParams) {
     resetViewer();
   }
 
-  async function leaveCurrentSession(): Promise<void> {
+  async function leaveCurrentSession(transitionId: number): Promise<void> {
     const sid = sessionRef.current?.id;
     if (!sid) {
       return;
     }
     await apiPost("/api/close-paper", { session_id: sid });
+    if (!isCurrentTransition(transitionId)) {
+      return;
+    }
     resetToEmptyViewer();
     rememberSessionInUrl(null);
   }
@@ -83,7 +96,11 @@ export function usePaperSession(params: PaperSessionParams) {
     if (!sessionRef.current) {
       return;
     }
-    await leaveCurrentSession();
+    const transitionId = beginTransition();
+    await leaveCurrentSession(transitionId);
+    if (!isCurrentTransition(transitionId)) {
+      return;
+    }
     setStatus("session closed");
     showToast("Session closed", "success");
   }
@@ -98,7 +115,11 @@ export function usePaperSession(params: PaperSessionParams) {
   async function enterSession(
     target: PaperSession,
     options: { preferredPage?: number } = {},
-  ): Promise<void> {
+    transitionId: number,
+  ): Promise<boolean> {
+    if (!isCurrentTransition(transitionId)) {
+      return false;
+    }
     setSession(target);
     sessionRef.current = target;
     setPaperRef(target.paper_ref);
@@ -116,10 +137,17 @@ export function usePaperSession(params: PaperSessionParams) {
       zoom: progress?.zoom,
       sessionId: target.id,
     });
+    if (!isCurrentTransition(transitionId)) {
+      return false;
+    }
     await loadWorkspaceFor(target.id);
+    if (!isCurrentTransition(transitionId)) {
+      return false;
+    }
     refreshRecentPapers();
     rememberSessionInUrl(target.id);
     setStatus("session ready");
+    return true;
   }
 
   async function openPaperWithInputs(
@@ -127,7 +155,11 @@ export function usePaperSession(params: PaperSessionParams) {
     pdfUriValue: string,
     options: { preferredPage?: number } = {},
   ): Promise<void> {
-    await leaveCurrentSession();
+    const transitionId = beginTransition();
+    await leaveCurrentSession(transitionId);
+    if (!isCurrentTransition(transitionId)) {
+      return;
+    }
 
     setStatus("opening session...");
     const openedSession = await apiPost<PaperSession>("/api/open-paper", {
@@ -137,9 +169,20 @@ export function usePaperSession(params: PaperSessionParams) {
       user_id: DEFAULT_USER_ID,
     });
 
+    if (!isCurrentTransition(transitionId)) {
+      try {
+        await apiPost("/api/close-paper", { session_id: openedSession.id });
+      } catch {
+        // The newer transition owns the visible state; keep its error primary.
+      }
+      return;
+    }
+
     try {
-      await enterSession(openedSession, options);
-      showToast("Session opened", "success");
+      const entered = await enterSession(openedSession, options, transitionId);
+      if (entered && isCurrentTransition(transitionId)) {
+        showToast("Session opened", "success");
+      }
     } catch (error) {
       // Roll back the session this call created; a session nobody can read is
       // worse than none.
@@ -147,6 +190,9 @@ export function usePaperSession(params: PaperSessionParams) {
         await apiPost("/api/close-paper", { session_id: openedSession.id });
       } catch {
         // Keep original open error as primary signal.
+      }
+      if (!isCurrentTransition(transitionId)) {
+        return;
       }
       resetToEmptyViewer();
       throw error;
@@ -171,9 +217,14 @@ export function usePaperSession(params: PaperSessionParams) {
     if (sessionRef.current?.id === sessionId) {
       return;
     }
+    const transitionId = beginTransition();
     const attached = await apiGet<PaperSession>(
       `/api/session?session_id=${encodeURIComponent(sessionId)}`,
     );
+
+    if (!isCurrentTransition(transitionId)) {
+      return;
+    }
 
     if (attached.closed_at) {
       setPaperRef(attached.paper_ref);
@@ -185,10 +236,26 @@ export function usePaperSession(params: PaperSessionParams) {
     }
 
     // The viewer is leaving whatever it held, so close it rather than orphan it.
-    await leaveCurrentSession();
+    await leaveCurrentSession(transitionId);
+    if (!isCurrentTransition(transitionId)) {
+      return;
+    }
     setStatus("attaching to session...");
-    await enterSession(attached);
-    showToast("Attached to existing session", "success");
+    try {
+      const entered = await enterSession(attached, {}, transitionId);
+      if (entered && isCurrentTransition(transitionId)) {
+        showToast("Attached to existing session", "success");
+      }
+    } catch (error) {
+      // Attaching must not close the existing session, but a failed PDF load
+      // must not leave its identity mounted over an empty reader.
+      if (!isCurrentTransition(transitionId)) {
+        return;
+      }
+      resetToEmptyViewer();
+      rememberSessionInUrl(null);
+      throw error;
+    }
   }
 
   async function openPaper(): Promise<void> {

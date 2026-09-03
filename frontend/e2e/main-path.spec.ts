@@ -279,6 +279,76 @@ test("a session_id deep link attaches instead of opening a new session", async (
   await expect(page.locator("#textLayer span").first()).toBeVisible();
 });
 
+test("a failed session attach resets the viewer identity", async ({ page }) => {
+  const pdfPath = ensureSamplePdf();
+
+  await page.goto("/");
+  await page.locator("#paperRef").fill("p_e2e_attach_failure");
+  await page.locator("#pdfUri").fill(pdfPath);
+  await page.locator("#openPaperBtn").click();
+  await expect(page.locator("#statusText")).toContainText("session ready");
+  const sessionId = ((await page.locator("#sessionInfo").textContent()) ?? "").trim();
+
+  // Keep the session lookup valid, but make the document load fail after the
+  // attach path has mounted the session identity.
+  await page.route("**/api/pdf**", async (route) => {
+    await route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "PDF unavailable for attach test" }),
+    });
+  });
+  await page.goto(`/?session_id=${sessionId}`);
+
+  await expect(page.locator("#sessionInfo")).toHaveText("—");
+  await expect(page.locator("#paperRef")).toHaveValue("");
+  await expect(page.locator("#pageInfo")).toContainText("— / —");
+  await expect(page).not.toHaveURL(/session_id=/);
+});
+
+test("a slower previous document cannot replace a newer paper", async ({ page }) => {
+  const pdfPath = ensureSamplePdf();
+  let pdfRequestCount = 0;
+  await page.route("**/api/pdf**", async (route) => {
+    pdfRequestCount += 1;
+    if (pdfRequestCount === 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+    }
+    try {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/pdf",
+        body: fs.readFileSync(pdfPath),
+      });
+    } catch {
+      // The first request can be aborted when the second paper retires it.
+    }
+  });
+
+  await page.goto("/");
+  await page.locator("#paperRef").fill("p_e2e_race_first");
+  await page.locator("#pdfUri").fill(pdfPath);
+  const firstOpen = page.waitForResponse((response) => {
+    return response.url().includes("/api/open-paper") && response.request().method() === "POST";
+  });
+  await page.locator("#openPaperBtn").click();
+  await firstOpen;
+
+  // The session identity is mounted before the deliberately slow PDF load
+  // finishes, so a second open can retire the first document in flight.
+  await expect(page.locator("#sessionDetailsToggle")).toBeVisible();
+  await page.locator("#sessionDetailsToggle").click();
+  await page.locator("#paperRef").fill("p_e2e_race_second");
+  await page.locator("#pdfUri").fill(pdfPath);
+  await page.locator("#openPaperBtn").click();
+
+  await expect(page.locator("#statusText")).toContainText("session ready");
+  await expect(page.locator("#sessionPaperRef")).toHaveText("p_e2e_race_second");
+  await page.waitForTimeout(1400);
+  await expect(page.locator("#sessionPaperRef")).toHaveText("p_e2e_race_second");
+  await expect(page.locator("#textLayer span").first()).toBeVisible();
+});
+
 test("a pdf_uri deep link opens a session named after the file", async ({ page }) => {
   const pdfPath = ensureSamplePdf();
 

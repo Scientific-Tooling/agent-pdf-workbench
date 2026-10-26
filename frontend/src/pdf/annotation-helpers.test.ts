@@ -55,13 +55,13 @@ describe("resolveAnchorOffsets", () => {
     expect(resolved).toEqual({ start: secondStart, end: secondStart + "the model".length });
   });
 
-  it("falls back to the first occurrence when context does not match", () => {
+  it("rejects repeated quotes when context does not match", () => {
     const repeated = "the model is the model again";
     const resolved = resolveAnchorOffsets(
       anchor({ quote: "the model", prefix: "nope " }),
       repeated,
     );
-    expect(resolved).toEqual({ start: 0, end: "the model".length });
+    expect(resolved).toBeNull();
   });
 
   it("tolerates whitespace differences between the quote and the page text", () => {
@@ -77,12 +77,25 @@ describe("resolveAnchorOffsets", () => {
     expect(resolved).toEqual({ start, end: start + "a model architecture".length });
   });
 
-  it("keeps the stored range when the quote is gone from the page", () => {
+  it("rejects the stored range when the quote is gone from the page", () => {
     const resolved = resolveAnchorOffsets(
       anchor({ quote: "not here", start: 2, end: 9 }),
       pageText,
     );
-    expect(resolved).toEqual({ start: 2, end: 9 });
+    expect(resolved).toBeNull();
+  });
+
+  it("rejects ambiguity without context and invalid empty-quote ranges", () => {
+    expect(resolveAnchorOffsets(anchor({ quote: "model" }), "model and model")).toBeNull();
+    expect(resolveAnchorOffsets(anchor({ start: -1, end: 99 }), "model")).toBeNull();
+    expect(resolveAnchorOffsets(anchor({ start: 1.5, end: 3 }), "model")).toBeNull();
+  });
+
+  it("maps a unique whitespace-normalized quote back to original offsets", () => {
+    expect(resolveAnchorOffsets(anchor({ quote: "a model" }), "First a  \nmodel ends.")).toEqual({
+      start: 6,
+      end: 15,
+    });
   });
 
   it("returns null when there is neither a usable quote nor a range", () => {

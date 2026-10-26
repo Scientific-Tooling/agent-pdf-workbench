@@ -323,6 +323,9 @@ bootstrap.sh       # one-command local install
 
 ## Documentation
 
+- [Source-passage navigation](docs/passage-navigation.md): reopen exact cited
+  pages and annotations with PDF verification and actionable anchor failures.
+
 - [Selected evidence export](docs/evidence-export.md): export chosen annotations
   and notes with exact source identity and explicit review provenance for RKS.
 

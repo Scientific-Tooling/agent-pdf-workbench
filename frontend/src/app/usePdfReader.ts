@@ -26,6 +26,7 @@ export interface OpenDocument {
   paperRef: string;
   pdfUri: string;
   sessionId: string;
+  expectedSha256?: string;
 }
 
 export interface PdfReaderCallbacks {
@@ -471,13 +472,14 @@ export function usePdfReader(params: PdfReaderParams) {
     pageRef.current = 1;
     setPageJumpInput("");
     setOutline([]);
-    await loadPdf(params.pdfUri, params.page, generation);
+    await loadPdf(params.pdfUri, params.page, generation, params.expectedSha256);
   }
 
   async function loadPdf(
     nextPdfUri: string,
     preferredPage: number,
     generation: number,
+    expectedSha256?: string,
   ): Promise<void> {
     const source = `/api/pdf?uri=${encodeURIComponent(nextPdfUri)}`;
     await withStageLoading("Loading PDF...", async () => {
@@ -485,7 +487,22 @@ export function usePdfReader(params: PdfReaderParams) {
       let doc: PDFDocumentProxy | null = null;
       let keepLoadingTask = false;
       try {
-        loadingTask = pdfjsLib.getDocument({ url: source });
+        if (expectedSha256) {
+          const response = await fetch(`${source}&sha256=${encodeURIComponent(expectedSha256)}`);
+          if (!response.ok) {
+            const error = (await response.json()) as { error?: string };
+            throw new Error(
+              error.error ?? "Exact source PDF is unavailable. Restore the reading snapshot.",
+            );
+          }
+          const data = new Uint8Array(await response.arrayBuffer());
+          if (documentGenerationRef.current !== generation) return;
+          // PDF.js consumes these exact verified bytes; it cannot issue a later
+          // range request against a file that has since been replaced.
+          loadingTask = pdfjsLib.getDocument({ data });
+        } else {
+          loadingTask = pdfjsLib.getDocument({ url: source });
+        }
         loadingTaskRef.current = loadingTask;
         doc = await loadingTask.promise;
         if (
@@ -515,6 +532,14 @@ export function usePdfReader(params: PdfReaderParams) {
         }
         if (!isCurrentDocument(generation, doc)) {
           return;
+        }
+        if (
+          expectedSha256 &&
+          (!Number.isInteger(preferredPage) || preferredPage < 1 || preferredPage > doc.numPages)
+        ) {
+          throw new Error(
+            `Cited page ${preferredPage} is outside this PDF (1–${doc.numPages}). Repair the source anchor.`,
+          );
         }
         const normalizedPage = clamp(preferredPage, 1, doc.numPages);
         await renderPage(normalizedPage, true, doc, generation);

@@ -272,6 +272,45 @@ test("the sidebar reports the paper, not the plumbing", async ({ page }) => {
   await expect(page.locator(".count-pill").first()).toHaveText("0");
 });
 
+test("completed annotation telemetry cannot erase a newer text selection", async ({ page }) => {
+  await page.setViewportSize({ width: 1512, height: 950 });
+  await openPaper(page, `p_e2e_selection_owner_${Date.now()}`);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let blocked!: () => void;
+  const started = new Promise<void>((resolve) => {
+    blocked = resolve;
+  });
+  await page.route("**/api/record-action", async (route) => {
+    if (route.request().postDataJSON().event_type === "annotation_upsert") {
+      blocked();
+      await gate;
+    }
+    await route.continue();
+  });
+  async function selectSpan(index: number): Promise<string> {
+    return page.evaluate((index) => {
+      const span = document.querySelectorAll("#textLayer span")[index];
+      const range = document.createRange();
+      range.selectNodeContents(span);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return selection.toString();
+    }, index);
+  }
+  await selectSpan(0);
+  await page.locator("#highlightBtn").click();
+  await started;
+  await expect(page.locator("#annotationList li.selected")).toHaveCount(1);
+  const newer = await selectSpan(1);
+  release();
+  await expect(page.getByText("Highlight saved", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe(newer);
+});
+
 test("a long quote is clamped in the list but shown in full when selected", async ({ page }) => {
   await page.setViewportSize({ width: 1512, height: 950 });
   // Annotations belong to the paper, so a fixed ref would accumulate across runs.

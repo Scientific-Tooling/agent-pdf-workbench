@@ -91,13 +91,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     export_parser.set_defaults(handler=handle_export)
 
-    evidence_parser = subparsers.add_parser("export-evidence", help="Export explicitly selected evidence without writes.")
+    evidence_parser = subparsers.add_parser(
+        "export-evidence", help="Export explicitly selected evidence without writes.",
+    )
     evidence_parser.add_argument("--session-id", required=True)
     evidence_parser.add_argument("--source-id", required=True, help="Stable unique name for this APW database.")
     evidence_parser.add_argument("--annotation-id", action="append", default=[])
     evidence_parser.add_argument("--note-id", action="append", default=[])
-    evidence_parser.add_argument("--reviews", type=Path, help="Explicit human review manifest bound to content revisions.")
+    evidence_parser.add_argument(
+        "--reviews", type=Path, help="Explicit human review manifest bound to content revisions.",
+    )
     evidence_parser.set_defaults(handler=handle_export_evidence)
+
+    passage_parser = subparsers.add_parser(
+        "resolve-passage", help="Check an exact source-passage citation without writes.",
+    )
+    passage_parser.add_argument("--session-id", required=True)
+    passage_parser.add_argument("--document-sha256", required=True)
+    passage_parser.add_argument("--annotation-id", required=True)
+    passage_parser.add_argument("--page", type=int, required=True)
+    passage_parser.add_argument("--passage-sha256", required=True)
+    passage_parser.set_defaults(handler=handle_resolve_passage)
 
     # ── diagnostics ────────────────────────────────────────────────────────────
     subparsers.add_parser(
@@ -199,6 +213,21 @@ def handle_export_evidence(args: argparse.Namespace) -> int:
         print(json.dumps({"error": "evidence_export_failed", "message": str(exc)}), file=sys.stderr)
         return 1
     print(json.dumps(payload, indent=2, ensure_ascii=True))
+    return 0
+
+
+def handle_resolve_passage(args: argparse.Namespace) -> int:
+    from .passage import PassageError, resolve_passage
+
+    try:
+        payload = resolve_passage(args.db_path, session_id=args.session_id,
+                                  document_sha256=args.document_sha256, annotation_id=args.annotation_id,
+                                  page=args.page, passage_sha256=args.passage_sha256)
+    except (PassageError, OSError, ValueError, sqlite3.Error) as exc:
+        payload = {"error": getattr(exc, "code", "passage_resolution_failed"), "message": str(exc)}
+        print(json.dumps(payload), file=sys.stderr)
+        return 1
+    print(json.dumps(payload, indent=2))
     return 0
 
 

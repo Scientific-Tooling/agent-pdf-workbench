@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import mimetypes
 import os
+import re
 import signal
 import sys
 from datetime import datetime, timezone
@@ -15,6 +17,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
 
+from .passage import PassageError
 from .service import AgentPdfWorkbenchService
 from .store import SCHEMA_VERSION, FieldValidationError
 
@@ -89,7 +92,7 @@ def _add_security_headers(handler: BaseHTTPRequestHandler) -> None:
 def _write_response_body(handler: BaseHTTPRequestHandler, body: bytes) -> None:
     try:
         handler.wfile.write(body)
-    except (BrokenPipeError, ConnectionResetError):
+    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
         # Browsers may cancel static/PDF requests during navigation or E2E
         # teardown. Treat that as a normal disconnect, not a server error.
         return
@@ -474,6 +477,28 @@ def _create_handler(
                 _json_response(self, payload)
                 return
 
+            if path == "/api/passage":
+                try:
+                    payload = service.resolve_passage(
+                        session_id=query.get("session_id", [""])[0],
+                        document_sha256=query.get("document_sha256", [""])[0],
+                        annotation_id=query.get("annotation_id", [""])[0],
+                        page=int(query.get("page", ["0"])[0]),
+                        passage_sha256=query.get("passage_sha256", [""])[0],
+                    )
+                except PassageError as exc:
+                    status = (HTTPStatus.NOT_FOUND if exc.code in {"SESSION_MISSING", "PASSAGE_MISSING"}
+                              else HTTPStatus.CONFLICT)
+                    if exc.code == "INVALID_CITATION":
+                        status = HTTPStatus.BAD_REQUEST
+                    _error_response(self, str(exc), code=exc.code, status=status)
+                    return
+                except ValueError as exc:
+                    _handle_validation_error(self, exc)
+                    return
+                _json_response(self, payload)
+                return
+
             if path == "/api/annotations":
                 scope = self._read_scope(query)
                 if scope is None:
@@ -521,7 +546,14 @@ def _create_handler(
                 except ValueError as exc:
                     _error_response(self, str(exc), code="VALIDATION_ERROR", status=HTTPStatus.BAD_REQUEST)
                     return
-                self._serve_pdf(uri)
+                expected_sha256 = query.get("sha256", [None])[0]
+                if expected_sha256 is not None and not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+                    _error_response(
+                        self, "sha256 must be a lowercase SHA-256 digest",
+                        code="INVALID_CITATION", status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+                self._serve_pdf(uri, expected_sha256)
                 return
 
             if path.startswith("/api/"):
@@ -771,7 +803,7 @@ def _create_handler(
                 raise ValueError("Body must be a JSON object")
             return payload
 
-        def _serve_pdf(self, uri: str) -> None:
+        def _serve_pdf(self, uri: str, expected_sha256: str | None = None) -> None:
             if uri.startswith("http://") or uri.startswith("https://"):
                 if not allow_remote_pdf:
                     _error_response(
@@ -861,6 +893,12 @@ def _create_handler(
                     )
                     return
                 content_type = "application/pdf"
+            if expected_sha256 is not None and hashlib.sha256(content).hexdigest() != expected_sha256:
+                _error_response(
+                    self, "Source PDF changed. Restore the exact reading snapshot before reopening this citation.",
+                    code="DOCUMENT_CHANGED", status=HTTPStatus.CONFLICT,
+                )
+                return
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(content)))
@@ -875,6 +913,10 @@ def _create_handler(
                 return
             data = target.read_bytes()
             content_type, _ = mimetypes.guess_type(str(target))
+            # Windows registry MIME associations can label .mjs as text/plain,
+            # which browsers reject for PDF.js's module worker under nosniff.
+            if target.suffix in {".js", ".mjs"}:
+                content_type = "text/javascript"
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", content_type or "application/octet-stream")
             self.send_header("Content-Length", str(len(data)))

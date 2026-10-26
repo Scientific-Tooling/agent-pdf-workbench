@@ -1,0 +1,2 @@
+# Match Prettier and keep generated viewer assets reproducible on Windows/Linux.
+* text=auto eol=lf

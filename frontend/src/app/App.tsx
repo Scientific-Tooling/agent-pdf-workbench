@@ -11,6 +11,7 @@ import { useToastStack } from "../hooks/useToastStack";
 import {
   getSelectionRectsAndQuote as getSelectionRectsAndQuoteFromDom,
   renderAnnotationLayer as renderAnnotationLayerFromDom,
+  resolveAnchorOffsets,
 } from "../pdf/annotation-helpers";
 import { ANCHOR_CONTEXT_CHARS } from "./app-types";
 import type { PendingSelection } from "./app-types";
@@ -23,7 +24,7 @@ import { applySearchHighlightsToCurrentPage as applySearchHighlightsToCurrentPag
 import { scrollIntoStageView } from "../ui/scroll-into-stage";
 import { upsertProgress, upsertRecentPaper } from "../services/storage";
 import { useWorkspaceSelection } from "./useWorkspaceSelection";
-import type { PaperSession } from "../types/types";
+import type { Annotation, PaperSession } from "../types/types";
 import { usePanelLayout } from "./usePanelLayout";
 import { THEME_LABELS, useTheme } from "./useTheme";
 import { usePaperSession } from "./usePaperSession";
@@ -207,6 +208,23 @@ export function App() {
     sessionRef,
     openDocument,
     loadWorkspaceFor,
+    focusPassage: async (annotation: Annotation, isCurrent: () => boolean) => {
+      const text = await ensurePageText(annotation.page);
+      if (!isCurrent()) return;
+      const anchor = annotation.anchor ?? {
+        quote: annotation.quote,
+        start: null,
+        end: null,
+        prefix: "",
+        suffix: "",
+      };
+      if (!annotation.quote.trim() || !resolveAnchorOffsets(anchor, text)) {
+        throw new Error(
+          "Cited quote is missing or ambiguous on this page. Inspect the retained source and repair the annotation anchor.",
+        );
+      }
+      upsertAnnotation(annotation);
+    },
     resetViewer,
     clearSearch,
     clearWorkspaceData,

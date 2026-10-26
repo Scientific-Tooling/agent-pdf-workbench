@@ -2,7 +2,7 @@ import type { PageViewport, TextItem, TextMarkedContent } from "../types/pdfjs-t
 
 export function readTextFromPdfItems(items: Array<TextItem | TextMarkedContent>): string {
   // Marked-content entries carry structure, not text, and contribute nothing.
-  return items.map((item) => ("str" in item ? item.str : "")).join(" ");
+  return items.flatMap((item) => ("str" in item ? [item.str] : [])).join(" ");
 }
 
 export function updateCanvasAndLayersSize(

@@ -10,8 +10,10 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 from agent_pdf_workbench.store import MAX_LIST_LIMIT, EventStore
+from agent_pdf_workbench.viewer_server import _write_response_body
 
 TEST_TIME = "2026-05-19T12:00:00+00:00"
 
@@ -293,6 +295,18 @@ class JsonPayloadEdgeCaseTest(unittest.TestCase):
             payload=None,
         )
         self.assertEqual(event.payload, {})
+
+
+class ResponseDisconnectTest(unittest.TestCase):
+    def test_browser_disconnects_are_expected_but_other_io_errors_propagate(self):
+        handler = Mock()
+        for failure in (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            with self.subTest(failure=failure):
+                handler.wfile.write.side_effect = failure()
+                _write_response_body(handler, b"response")
+        handler.wfile.write.side_effect = OSError("unexpected I/O failure")
+        with self.assertRaisesRegex(OSError, "unexpected"):
+            _write_response_body(handler, b"response")
 
 
 if __name__ == "__main__":

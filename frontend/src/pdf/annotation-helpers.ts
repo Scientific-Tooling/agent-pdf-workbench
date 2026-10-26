@@ -32,58 +32,70 @@ export function resolveAnchorOffsets(
   pageText: string,
 ): { start: number; end: number } | null {
   const hasRange = typeof anchor.start === "number" && typeof anchor.end === "number";
+  const quote = normalizedText(anchor.quote);
   if (hasRange) {
     const start = Number(anchor.start);
     const end = Number(anchor.end);
-    if (start >= 0 && end > start && end <= pageText.length) {
+    if (
+      Number.isInteger(start) &&
+      Number.isInteger(end) &&
+      start >= 0 &&
+      end > start &&
+      end <= pageText.length
+    ) {
       const candidate = pageText.slice(start, end);
-      if (!anchor.quote || normalizedText(candidate).includes(normalizedText(anchor.quote))) {
+      if (!quote || normalizedText(candidate) === quote) {
         return { start, end };
       }
     }
   }
 
-  const quote = anchor.quote.trim();
   if (!quote) {
-    if (hasRange) {
-      return { start: Number(anchor.start), end: Number(anchor.end) };
-    }
     return null;
   }
 
-  const hits: Array<{ start: number; end: number; score: number }> = [];
+  // Keep a map back to the original text so whitespace normalization never
+  // moves the DOM range to another passage.
+  const positions: Array<{ start: number; end: number }> = [];
+  let normalized = "";
+  for (const match of pageText.matchAll(/\S+|\s+/g)) {
+    const start = match.index;
+    if (/^\s/.test(match[0])) {
+      if (normalized.length > 0) {
+        normalized += " ";
+        positions.push({ start, end: start + match[0].length });
+      }
+    } else {
+      normalized += match[0];
+      for (let offset = 0; offset < match[0].length; offset += 1) {
+        positions.push({ start: start + offset, end: start + offset + 1 });
+      }
+    }
+  }
+  const hits: Array<{ start: number; end: number }> = [];
   let cursor = 0;
-  while (cursor <= pageText.length) {
-    const hit = pageText.indexOf(quote, cursor);
+  while (cursor <= normalized.length) {
+    const hit = normalized.indexOf(quote, cursor);
     if (hit === -1) {
       break;
     }
-    const end = hit + quote.length;
-    let score = 0;
-    if (anchor.prefix) {
-      const prefixStart = Math.max(0, hit - anchor.prefix.length);
-      if (pageText.slice(prefixStart, hit) === anchor.prefix) {
-        score += 1;
-      }
+    const start = positions[hit].start;
+    const end = positions[hit + quote.length - 1].end;
+    if (
+      (!anchor.prefix ||
+        normalizedText(pageText.slice(0, start)).endsWith(normalizedText(anchor.prefix))) &&
+      (!anchor.suffix ||
+        normalizedText(pageText.slice(end)).startsWith(normalizedText(anchor.suffix)))
+    ) {
+      hits.push({ start, end });
     }
-    if (anchor.suffix) {
-      const suffixEnd = Math.min(pageText.length, end + anchor.suffix.length);
-      if (pageText.slice(end, suffixEnd) === anchor.suffix) {
-        score += 1;
-      }
-    }
-    hits.push({ start: hit, end, score });
-    cursor = end;
+    cursor = hit + 1;
   }
 
-  if (hits.length > 0) {
-    hits.sort((a, b) => (a.score === b.score ? a.start - b.start : b.score - a.score));
+  if (hits.length === 1) {
     return { start: hits[0].start, end: hits[0].end };
   }
 
-  if (hasRange) {
-    return { start: Number(anchor.start), end: Number(anchor.end) };
-  }
   return null;
 }
 
@@ -93,12 +105,21 @@ function annotationRectsFromAnchor(
   pageTextCache: Map<number, string>,
   textLayer: HTMLDivElement,
 ): NormalizedRect[] {
-  if (annotation.page !== page || !annotation.anchor) {
+  if (annotation.page !== page) {
     return [];
   }
 
   const pageText = pageTextCache.get(page) ?? "";
-  const offsets = resolveAnchorOffsets(annotation.anchor, pageText);
+  const offsets = resolveAnchorOffsets(
+    annotation.anchor ?? {
+      quote: annotation.quote,
+      start: null,
+      end: null,
+      prefix: "",
+      suffix: "",
+    },
+    pageText,
+  );
   if (!offsets || offsets.end <= offsets.start) {
     return [];
   }

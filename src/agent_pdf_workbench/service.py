@@ -9,7 +9,13 @@ from .store import MAX_LIST_LIMIT, EventStore
 
 class AgentPdfWorkbenchService:
     def __init__(self, db_path: Path) -> None:
+        self._db_path = db_path
         self._store = EventStore(db_path)
+
+    def resolve_passage(self, **citation) -> dict:
+        from .passage import resolve_passage
+
+        return resolve_passage(self._db_path, **citation)
 
     def open_paper(
         self,

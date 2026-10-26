@@ -3,7 +3,9 @@ import type { MutableRefObject } from "react";
 
 import { apiGet, apiPost } from "../services/api";
 import { getProgress, getRecentPapers } from "../services/storage";
-import type { PaperSession, RecentPaper } from "../types/types";
+import type { Annotation, PaperSession, RecentPaper } from "../types/types";
+import { clearPassageQuery, passageQuery } from "./passage-link";
+import type { PassageResponse } from "./passage-link";
 import { paperRefFromUri } from "../utils/main-utils";
 import { DEFAULT_AGENT_ID, DEFAULT_USER_ID } from "./app-types";
 import type { ToastType } from "./app-types";
@@ -15,6 +17,7 @@ interface PaperSessionParams {
   openDocument: (params: OpenDocument & { page: number; zoom?: number }) => Promise<void>;
   /** Load the session's events and the paper's annotations and notes. */
   loadWorkspaceFor: (sessionId: string) => Promise<void>;
+  focusPassage: (annotation: Annotation, isCurrent: () => boolean) => Promise<void>;
   /**
    * Clear everything except the paper identity: reader, search, workspace and
    * form state. Identity is this hook's own business, which keeps the
@@ -40,6 +43,7 @@ export function usePaperSession(params: PaperSessionParams) {
     sessionRef,
     openDocument,
     loadWorkspaceFor,
+    focusPassage,
     resetViewer,
     clearSearch,
     clearWorkspaceData,
@@ -114,7 +118,7 @@ export function usePaperSession(params: PaperSessionParams) {
    */
   async function enterSession(
     target: PaperSession,
-    options: { preferredPage?: number } = {},
+    options: { preferredPage?: number; passage?: PassageResponse } = {},
     transitionId: number,
   ): Promise<boolean> {
     if (!isCurrentTransition(transitionId)) {
@@ -136,6 +140,7 @@ export function usePaperSession(params: PaperSessionParams) {
       // it actually has instead of a hard-coded 135%.
       zoom: progress?.zoom,
       sessionId: target.id,
+      expectedSha256: options.passage?.document_sha256,
     });
     if (!isCurrentTransition(transitionId)) {
       return false;
@@ -144,16 +149,22 @@ export function usePaperSession(params: PaperSessionParams) {
     if (!isCurrentTransition(transitionId)) {
       return false;
     }
+    if (options.passage) {
+      await focusPassage(options.passage.annotation, () => isCurrentTransition(transitionId));
+      if (!isCurrentTransition(transitionId)) return false;
+    }
     refreshRecentPapers();
-    rememberSessionInUrl(target.id);
-    setStatus("session ready");
+    rememberSessionInUrl(target.id, !!options.passage);
+    setStatus(
+      options.passage ? `passage ready — page ${options.passage.annotation.page}` : "session ready",
+    );
     return true;
   }
 
   async function openPaperWithInputs(
     paperRefValue: string,
     pdfUriValue: string,
-    options: { preferredPage?: number } = {},
+    options: { preferredPage?: number; passage?: PassageResponse } = {},
   ): Promise<void> {
     const transitionId = beginTransition();
     await leaveCurrentSession(transitionId);
@@ -199,7 +210,7 @@ export function usePaperSession(params: PaperSessionParams) {
     }
   }
 
-  function rememberSessionInUrl(sessionId: string | null): void {
+  function rememberSessionInUrl(sessionId: string | null, preservePassage = false): void {
     // Keeping the id in the URL means a reload — or a link an agent hands the
     // reader — lands back in the same session instead of starting a new one.
     const url = new URL(window.location.href);
@@ -210,23 +221,33 @@ export function usePaperSession(params: PaperSessionParams) {
     }
     url.searchParams.delete("paper_ref");
     url.searchParams.delete("pdf_uri");
+    if (!preservePassage) clearPassageQuery(url.searchParams);
     window.history.replaceState({}, "", `${url.pathname}${url.search}`);
   }
 
-  async function attachToSession(sessionId: string): Promise<void> {
+  async function attachToSession(sessionId: string, passage?: PassageResponse): Promise<void> {
     if (sessionRef.current?.id === sessionId) {
       return;
     }
     const transitionId = beginTransition();
-    const attached = await apiGet<PaperSession>(
-      `/api/session?session_id=${encodeURIComponent(sessionId)}`,
-    );
+    const attached =
+      passage?.session ??
+      (await apiGet<PaperSession>(`/api/session?session_id=${encodeURIComponent(sessionId)}`));
 
     if (!isCurrentTransition(transitionId)) {
       return;
     }
 
     if (attached.closed_at) {
+      if (passage) {
+        // A citation outlives a reading session. Start a reading session for
+        // the same verified document and paper-scoped annotation.
+        await openPaperWithInputs(attached.paper_ref, attached.pdf_uri, {
+          preferredPage: passage.annotation.page,
+          passage,
+        });
+        return;
+      }
       setPaperRef(attached.paper_ref);
       setPdfUri(attached.pdf_uri);
       setStatus("That session is closed. Open the paper again to keep reading.");
@@ -242,7 +263,11 @@ export function usePaperSession(params: PaperSessionParams) {
     }
     setStatus("attaching to session...");
     try {
-      const entered = await enterSession(attached, {}, transitionId);
+      const entered = await enterSession(
+        attached,
+        { preferredPage: passage?.annotation.page, passage },
+        transitionId,
+      );
       if (entered && isCurrentTransition(transitionId)) {
         showToast("Attached to existing session", "success");
       }
@@ -279,14 +304,22 @@ export function usePaperSession(params: PaperSessionParams) {
     const requestedSessionId = params.get("session_id");
     const requestedPdfUri = params.get("pdf_uri");
     const requestedPaperRef = params.get("paper_ref");
-    if (!requestedSessionId && !requestedPdfUri) {
+    if (
+      !requestedSessionId &&
+      !requestedPdfUri &&
+      !["document_sha256", "annotation_id", "page", "passage_sha256"].some((key) => params.has(key))
+    ) {
       return;
     }
 
     void (async () => {
       try {
+        const query = passageQuery(params);
         if (requestedSessionId) {
-          await attachToSession(requestedSessionId);
+          const passage = query
+            ? await apiGet<PassageResponse>(`/api/passage?${query}`)
+            : undefined;
+          await attachToSession(requestedSessionId, passage);
           return;
         }
         if (requestedPdfUri) {

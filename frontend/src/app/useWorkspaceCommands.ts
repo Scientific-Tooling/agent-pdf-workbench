@@ -130,6 +130,10 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
       showToast("Select text on the PDF before annotating", "warning");
       return;
     }
+    const selectionAtStart = window.getSelection();
+    const ownedRange = selectionAtStart?.rangeCount
+      ? selectionAtStart.getRangeAt(0).cloneRange()
+      : null;
 
     const now = nowIso();
     const annotation: Annotation = {
@@ -150,11 +154,28 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
       annotation,
     });
     const saved = asAnnotation(savedRecord.annotation) ?? annotation;
-    upsertAnnotation(saved);
+    if (sessionRef.current?.id === activeSession.id) {
+      upsertAnnotation(saved);
+      // Saving owns only the selection captured at invocation. A newer
+      // selection may already exist while persistence or telemetry is pending.
+      const currentSelection = window.getSelection();
+      const currentRange = currentSelection?.rangeCount ? currentSelection.getRangeAt(0) : null;
+      const stillOwned =
+        ownedRange && currentRange
+          ? ownedRange.startContainer === currentRange.startContainer &&
+            ownedRange.startOffset === currentRange.startOffset &&
+            ownedRange.endContainer === currentRange.endContainer &&
+            ownedRange.endOffset === currentRange.endOffset
+          : !ownedRange && !currentRange;
+      if (stillOwned) {
+        onHideQuickAnnotator();
+        currentSelection?.removeAllRanges();
+      }
+    }
     await recordAction(
       "annotation_upsert",
       { annotation: saved },
-      pageRef.current,
+      saved.page,
       saved.quote,
       activeSession.id,
     );
@@ -162,14 +183,14 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
       await recordAction(
         "comment",
         { annotation_id: saved.id, text: saved.comment, tags: saved.tags },
-        pageRef.current,
+        saved.page,
         saved.quote,
         activeSession.id,
       );
     }
-    onHideQuickAnnotator();
-    window.getSelection()?.removeAllRanges();
-    showToast(type === "highlight" ? "Highlight saved" : "Underline saved", "success");
+    if (sessionRef.current?.id === activeSession.id) {
+      showToast(type === "highlight" ? "Highlight saved" : "Underline saved", "success");
+    }
   }
 
   async function updateSelectedAnnotationMeta(): Promise<void> {

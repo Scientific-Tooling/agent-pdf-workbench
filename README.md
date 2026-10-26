@@ -123,6 +123,16 @@ npm run verify:without-e2e
 npm run verify                   # everything above plus Playwright E2E
 ```
 
+For backend checks on Windows or Linux, after installing the Python extras above:
+
+```bash
+python -m ruff check src tests
+python -m unittest discover -s tests -v
+```
+
+The backend CI runs on both operating systems with Python 3.10–3.12 and installs
+the MCP extra so its tool-contract tests are exercised.
+
 Playwright browser setup (first time only):
 
 ```bash

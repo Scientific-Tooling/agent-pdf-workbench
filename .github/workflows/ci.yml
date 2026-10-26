@@ -9,9 +9,10 @@ on:
 jobs:
   python-tests:
     name: Python tests (unit + integration)
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
@@ -26,17 +27,13 @@ jobs:
         run: pip install -e '.[mcp,dev]'
 
       - name: Lint Python
-        run: python3 -m ruff check src tests
+        run: python -m ruff check src tests
 
       - name: Run unit tests
-        run: |
-          PYTHONPATH=src python3 -m unittest discover \
-            -s tests/unit -p 'test_*.py' -v
+        run: python -m unittest discover -s tests/unit -p "test_*.py" -v
 
       - name: Run integration tests
-        run: |
-          PYTHONPATH=src python3 -m unittest discover \
-            -s tests/integration -p 'test_*.py' -v
+        run: python -m unittest discover -s tests/integration -p "test_*.py" -v
 
   frontend-checks:
     name: Frontend checks (typecheck + lint + unit)

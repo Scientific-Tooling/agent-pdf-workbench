@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from agent_pdf_workbench.store import SCHEMA_VERSION, EventStore
@@ -186,7 +187,7 @@ class EventStoreTest(unittest.TestCase):
                 payload={"total_pages": 10},
                 source="viewer",
             )
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as conn, conn:
                 conn.execute(
                     "UPDATE action_events SET created_at = ? WHERE id = ?",
                     ("2000-01-01T00:00:00+00:00", first.id),
@@ -383,7 +384,7 @@ class SchemaVersioningTest(unittest.TestCase):
             db_path = Path(tmp_dir) / "events.db"
             store = EventStore(db_path)
             # Manually bump the recorded version to simulate a newer DB.
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as conn, conn:
                 conn.execute(
                     "UPDATE schema_migrations SET version = ? WHERE version = ?",
                     (SCHEMA_VERSION + 1, SCHEMA_VERSION),
@@ -396,7 +397,7 @@ class SchemaVersioningTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             db_path = Path(tmp_dir) / "events.db"
             EventStore(db_path)
-            with sqlite3.connect(db_path) as conn:
+            with closing(sqlite3.connect(db_path)) as conn:
                 row = conn.execute("PRAGMA journal_mode").fetchone()
                 self.assertEqual(row[0], "wal")
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -421,14 +423,17 @@ class EventStore:
         self._run_migrations()
         self.check_integrity()
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._db_path)
-        conn.row_factory = sqlite3.Row
-        # WAL mode for better read/write concurrency and crash resilience.
-        conn.execute("PRAGMA journal_mode=WAL")
-        # NORMAL: fsync after each checkpoint (good balance for local use).
-        conn.execute("PRAGMA synchronous=NORMAL")
-        return conn
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """Own a connection and commit or roll back its transaction before closing."""
+        with closing(sqlite3.connect(self._db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            # WAL mode for better read/write concurrency and crash resilience.
+            conn.execute("PRAGMA journal_mode=WAL")
+            # NORMAL: fsync after each checkpoint (good balance for local use).
+            conn.execute("PRAGMA synchronous=NORMAL")
+            with conn:
+                yield conn
 
     def _run_migrations(self) -> None:
         """Apply any pending forward-only migrations in version order."""
@@ -830,14 +835,9 @@ class EventStore:
         server is running (uses SQLite's incremental backup mechanism).
         """
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        src = sqlite3.connect(self._db_path)
-        dst = sqlite3.connect(target_path)
-        try:
+        with closing(sqlite3.connect(self._db_path)) as src, closing(sqlite3.connect(target_path)) as dst:
             with dst:
                 src.backup(dst)
-        finally:
-            src.close()
-            dst.close()
 
     def checkpoint(self) -> dict:
         """Force a WAL checkpoint and return the result counters.

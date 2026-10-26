@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -90,6 +91,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     export_parser.set_defaults(handler=handle_export)
 
+    evidence_parser = subparsers.add_parser("export-evidence", help="Export explicitly selected evidence without writes.")
+    evidence_parser.add_argument("--session-id", required=True)
+    evidence_parser.add_argument("--source-id", required=True, help="Stable unique name for this APW database.")
+    evidence_parser.add_argument("--annotation-id", action="append", default=[])
+    evidence_parser.add_argument("--note-id", action="append", default=[])
+    evidence_parser.add_argument("--reviews", type=Path, help="Explicit human review manifest bound to content revisions.")
+    evidence_parser.set_defaults(handler=handle_export_evidence)
+
     # ── diagnostics ────────────────────────────────────────────────────────────
     subparsers.add_parser(
         "diagnostics",
@@ -174,6 +183,22 @@ def handle_export(args: argparse.Namespace) -> int:
     else:
         args.output.write_text(text, encoding="utf-8")
         print(f"Exported {payload['session_count']} session(s) to {args.output}", file=sys.stderr)
+    return 0
+
+
+def handle_export_evidence(args: argparse.Namespace) -> int:
+    from .evidence import export_evidence
+
+    try:
+        reviews = json.loads(args.reviews.read_text(encoding="utf-8-sig")) if args.reviews else None
+        payload = export_evidence(
+            args.db_path, session_id=args.session_id, source_id=args.source_id,
+            annotation_ids=args.annotation_id, note_ids=args.note_id, reviews=reviews,
+        )
+    except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as exc:
+        print(json.dumps({"error": "evidence_export_failed", "message": str(exc)}), file=sys.stderr)
+        return 1
+    print(json.dumps(payload, indent=2, ensure_ascii=True))
     return 0
 
 

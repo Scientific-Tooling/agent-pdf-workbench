@@ -26,12 +26,13 @@ Current repo focus:
 - MCP server entrypoint (for Codex/Claude tool integration)
 - dev CLI for local testing, backup, export, and diagnostics
 - local PDF.js-based viewer server with event capture
+- [selected evidence export for RKS](docs/evidence-export.md), with source-reading
+  and import orchestration in Structured Intelligence
 
 Future scope:
 
 - real-time sync and presence
 - richer annotation model
-- integration adapter for RKS (`paper_id -> pdf_uri`)
 
 ## Quick start (one command)
 
@@ -321,6 +322,9 @@ bootstrap.sh       # one-command local install
 ```
 
 ## Documentation
+
+- [Selected evidence export](docs/evidence-export.md): export chosen annotations
+  and notes with exact source identity and explicit review provenance for RKS.
 
 - [docs/tutorial.md](docs/tutorial.md) — walkthrough
 - [docs/operations-local.md](docs/operations-local.md) — backup, restore, upgrade, rollback

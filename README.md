@@ -37,18 +37,13 @@ Future scope:
 ## Guided evidence workflow
 
 For a PDF-to-brief experience with managed RKS storage, use Structured Intelligence's
-[Scientific Tooling CLI](https://github.com/Scientific-Tooling/structured-intelligence/blob/main/workflows/research/quickstart.md).
+[PDF-to-brief quick start](https://scientifictooling.org/guides/paper-to-brief/).
 It opens this reader with an **Evidence & brief** panel: select saved highlights or
 notes, inspect the import preview, explicitly import, and download a source-linked
 brief. Imported observations retain their review status. Standalone APW remains
 usable without the orchestration package.
 
-## Quick start (one command)
-
-For reading an RKS paper and returning selected evidence to RKS, follow the
-[Windows/PowerShell walkthrough](https://scientifictooling.org/guides/rks-apw-windows/)
-or the [Linux/macOS walkthrough](https://scientifictooling.org/guides/rks-apw-linux-macos/).
-Both cover source installation through a brief with links to the original passage.
+## Standalone APW quick start
 
 ```bash
 bash bootstrap.sh

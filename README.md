@@ -43,6 +43,9 @@ notes, inspect the import preview, explicitly import, and download a source-link
 brief. Imported observations retain their review status. Standalone APW remains
 usable without the orchestration package.
 
+Python 3.12 or newer is required; **Python 3.14 is recommended**.
+The repository default is recorded in `.python-version`.
+
 ## Standalone APW quick start
 
 ```bash
@@ -140,7 +143,7 @@ python -m ruff check src tests
 python -m unittest discover -s tests -v
 ```
 
-The backend CI runs on both operating systems with Python 3.10–3.12 and installs
+The backend CI runs on both operating systems with Python 3.12–3.15 and installs
 the MCP extra so its tool-contract tests are exercised.
 
 Playwright browser setup (first time only):
@@ -320,7 +323,7 @@ tests/
     test_viewer_server.py
     test_load.py
 .github/
-  workflows/ci.yml # CI: Python 3.10–3.12, frontend checks, Playwright E2E
+  workflows/ci.yml # CI: Python 3.12–3.15, frontend checks, Playwright E2E
 docs/
   tutorial.md
   operations-local.md    # runbook: backup, restore, upgrade, rollback

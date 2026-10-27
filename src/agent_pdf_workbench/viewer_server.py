@@ -9,7 +9,7 @@ import os
 import re
 import signal
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -85,7 +85,7 @@ class _MissingFieldError(ValueError):
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _audit(event: str, **kwargs: object) -> None:

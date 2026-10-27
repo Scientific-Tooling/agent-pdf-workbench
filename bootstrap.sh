@@ -12,9 +12,9 @@ echo "=== agent-pdf-workbench bootstrap ==="
 
 # ── 1. Python version check ────────────────────────────────────────────────────
 PYTHON="${PYTHON:-python3}"
-PY_OK=$("$PYTHON" -c "import sys; print(1 if sys.version_info >= (3,10) else 0)" 2>/dev/null || echo 0)
+PY_OK=$("$PYTHON" -c "import sys; print(1 if sys.version_info >= (3,12) else 0)" 2>/dev/null || echo 0)
 if [[ "$PY_OK" != "1" ]]; then
-  echo "ERROR: Python 3.10+ is required. Found: $($PYTHON --version 2>&1 || echo 'not found')"
+  echo "ERROR: Python 3.12+ (3.14 recommended) is required. Found: $($PYTHON --version 2>&1 || echo 'not found')"
   exit 1
 fi
 echo "  ✓ Python: $($PYTHON --version)"

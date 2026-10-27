@@ -246,8 +246,8 @@ def handle_diagnostics(args: argparse.Namespace) -> int:
     # Python version
     import sys as _sys
     py_ver = _sys.version_info
-    py_ok = py_ver >= (3, 10)
-    _check("python_version", py_ok, f"{py_ver.major}.{py_ver.minor}.{py_ver.micro} (need >=3.10)")
+    py_ok = py_ver >= (3, 12)
+    _check("python_version", py_ok, f"{py_ver.major}.{py_ver.minor}.{py_ver.micro} (need >=3.12; recommend 3.14)")
 
     # Node / npm
     node_path = shutil.which("node")

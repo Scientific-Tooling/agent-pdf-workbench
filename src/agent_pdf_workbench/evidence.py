@@ -7,7 +7,7 @@ import json
 import re
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .store import validate_annotation_payload, validate_note_payload
@@ -145,5 +145,5 @@ def export_evidence(
         "source": {"system": "apw", "source_id": source_id,
                    "paper_ref": session["paper_ref"], "session_id": session_id},
         "document": {"path": str(path.resolve()), "sha256": document_sha256, "size_bytes": size},
-        "exported_at": datetime.now(timezone.utc).isoformat(), "items": items,
+        "exported_at": datetime.now(UTC).isoformat(), "items": items,
     }

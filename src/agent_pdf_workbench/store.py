@@ -5,7 +5,7 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -155,7 +155,7 @@ _MIGRATIONS: list[tuple[int, str, list[str]]] = [
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class FieldValidationError(ValueError):

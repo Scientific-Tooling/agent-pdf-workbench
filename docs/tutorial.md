@@ -4,7 +4,7 @@ This tutorial walks through the project end-to-end using the local CLI, the view
 
 ## 1. Prerequisites
 
-- Python 3.10+
+- Python 3.12+ (3.14 recommended)
 - Local clone of this repository
 
 From repo root:

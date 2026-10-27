@@ -19,6 +19,13 @@ interface Preview {
 interface WorkflowStatus {
   enabled: boolean;
   question?: string;
+  papers?: {
+    key: string;
+    title: string;
+    phase: string;
+    session_id: string | null;
+    viewer_url: string | null;
+  }[];
   preview?: Preview | null;
   brief?: { text: string; passage_urls: string[] } | null;
 }
@@ -133,6 +140,36 @@ export function WorkflowPanel({
       </summary>
       <div className="card-body">
         <p className="workflow-question">{state.question}</p>
+        {!!state.papers?.length && (
+          <nav aria-label="Project papers" className="workflow-papers">
+            <h3>
+              Project papers <span className="muted">({state.papers.length})</span>
+            </h3>
+            <ul>
+              {state.papers.map((paper) => (
+                <li key={paper.key}>
+                  {paper.viewer_url ? (
+                    <a
+                      href={paper.viewer_url}
+                      aria-current={paper.session_id === sessionId ? "page" : undefined}
+                    >
+                      {paper.key}: {paper.title}
+                    </a>
+                  ) : (
+                    <span>
+                      {paper.key}: {paper.title}
+                    </span>
+                  )}
+                  <small>{paper.phase}</small>
+                </li>
+              ))}
+            </ul>
+            <p className="muted">
+              Add papers with <code>sci add</code>, then refresh this page. The brief includes
+              evidence from every paper.
+            </p>
+          </nav>
+        )}
         <p className="muted">Choose saved highlights or notes to keep as evidence.</p>
         <fieldset disabled={busy} className="workflow-selection">
           <legend className="sr-only">Evidence selection</legend>
@@ -201,7 +238,7 @@ export function WorkflowPanel({
         <p role="status" aria-live="polite">
           {busy ? "Working…" : message}
         </p>
-        {(preview?.applied || state.brief) && (
+        {(preview?.applied || state.brief || (state.papers?.length ?? 0) > 1) && (
           <button disabled={busy} onClick={() => void run("brief")}>
             Generate brief from imported evidence
           </button>

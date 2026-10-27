@@ -1371,3 +1371,38 @@ button:not([class*="-btn"]):hover {
   font-weight: 600;
   overflow-wrap: anywhere;
 }
+
+.workflow-papers {
+  border-bottom: 1px solid var(--border-default);
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+.workflow-papers ul {
+  list-style: none;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.workflow-papers li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 10px 0;
+}
+
+.workflow-papers li a,
+.workflow-papers li > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workflow-papers a[aria-current="page"] {
+  font-weight: 700;
+}
+
+.workflow-papers small {
+  color: var(--text-secondary);
+}

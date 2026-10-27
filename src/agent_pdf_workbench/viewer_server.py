@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from socketserver import TCPServer
 from threading import Thread
+from typing import Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
@@ -39,6 +40,14 @@ class _ViewerHTTPServer(ThreadingHTTPServer):
         # 127.0.0.1. The viewer needs the bound address, not a resolved hostname.
         TCPServer.server_bind(self)
         self.server_name, self.server_port = self.server_address[:2]
+
+
+class ReadingWorkflow(Protocol):
+    """Optional orchestration supplied by a host; APW never owns its evidence store."""
+
+    def status(self, session_id: str | None) -> dict: ...
+
+    def execute(self, payload: dict) -> dict: ...
 
 # Maximum POST body size (1 MiB). Protects against runaway payloads.
 _MAX_REQUEST_BODY = 1 * 1024 * 1024
@@ -394,6 +403,7 @@ def _create_handler(
     pdf_root: Path | None = None,
     max_pdf_bytes: int = _DEFAULT_MAX_PDF_BYTES,
     allowed_hosts: frozenset[str] | None = None,
+    workflow: ReadingWorkflow | None = None,
 ):
     web_root = WEB_DIR.resolve()
     resolved_pdf_root = pdf_root.resolve() if pdf_root is not None else None
@@ -406,6 +416,15 @@ def _create_handler(
             parsed = urlparse(self.path)
             path = parsed.path
             query = parse_qs(parsed.query)
+
+            if path == "/api/workflow":
+                try:
+                    payload = (workflow.status(query.get("session_id", [None])[0])
+                               if workflow else {"enabled": False})
+                    _json_response(self, payload)
+                except ValueError as exc:
+                    _handle_validation_error(self, exc)
+                return
 
             if path == "/api/health":
                 _json_response(
@@ -604,6 +623,16 @@ def _create_handler(
 
             def _handle_post_validation_error(exc: ValueError) -> None:
                 _handle_validation_error(self, exc)
+
+            if path == "/api/workflow":
+                if workflow is None:
+                    _error_response(self, "No reading workflow is attached", code="NOT_FOUND", status=404)
+                    return
+                try:
+                    _json_response(self, workflow.execute(body))
+                except ValueError as exc:
+                    _handle_post_validation_error(exc)
+                return
 
             if path == "/api/open-paper":
                 try:
@@ -935,6 +964,31 @@ def _create_handler(
             _write_response_body(self, data)
 
     return ViewerRequestHandler
+
+
+def create_viewer_server(
+    db_path: Path, pdf_root: Path, *, host: str = "127.0.0.1", port: int = 0,
+    workflow: ReadingWorkflow | None = None,
+) -> ThreadingHTTPServer:
+    """Create a local embedded reader. The caller owns serve/shutdown/close.
+
+    Port zero allocates an available port. Workflow operations share APW's JSON,
+    request-size, local Host and Origin checks. Remote PDFs remain disabled.
+    """
+    if host not in _LOCAL_HOSTS or not 0 <= port <= 65535:
+        raise ValueError("Embedded readers require a local host and a port between 0 and 65535")
+    if not pdf_root.is_dir():
+        raise ValueError("The retained PDF directory does not exist")
+    _check_web_assets()
+    server = _ViewerHTTPServer(
+        (host, port),
+        _create_handler(AgentPdfWorkbenchService(db_path=db_path), pdf_root=pdf_root,
+                        allowed_hosts=allowed_host_names(host), workflow=workflow),
+    )
+    # Embedded owners must be able to close every active request before reporting
+    # a stopped workspace that is safe to back up or move.
+    server.daemon_threads = False
+    return server
 
 
 def build_parser() -> argparse.ArgumentParser:

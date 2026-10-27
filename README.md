@@ -34,6 +34,15 @@ Future scope:
 - real-time sync and presence
 - richer annotation model
 
+## Guided evidence workflow
+
+For a PDF-to-brief experience with managed RKS storage, use Structured Intelligence's
+[Scientific Tooling CLI](https://github.com/Scientific-Tooling/structured-intelligence/blob/main/workflows/research/quickstart.md).
+It opens this reader with an **Evidence & brief** panel: select saved highlights or
+notes, inspect the import preview, explicitly import, and download a source-linked
+brief. Imported observations retain their review status. Standalone APW remains
+usable without the orchestration package.
+
 ## Quick start (one command)
 
 For reading an RKS paper and returning selected evidence to RKS, follow the

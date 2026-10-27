@@ -1,7 +1,9 @@
 import { buildEventLines } from "../utils/timeline";
+import { WorkflowPanel } from "./WorkflowPanel";
 import type { ActionEvent, Annotation, Note, SearchResult } from "../types/types";
 
 interface WorkspacePanelProps {
+  sessionId: string | null;
   sortedAnnotations: Annotation[];
   sortedNotes: Note[];
   selectedAnnotationId: string | null;
@@ -74,6 +76,12 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
 
   return (
     <aside className="panel workspace" aria-label="Annotations, notes and export">
+      <WorkflowPanel
+        key={props.sessionId}
+        sessionId={props.sessionId}
+        annotations={sortedAnnotations}
+        notes={sortedNotes}
+      />
       {/* Annotation section */}
       <details className="card collapsible" open>
         <summary>

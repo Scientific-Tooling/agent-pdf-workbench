@@ -562,6 +562,7 @@ export function App() {
         />
 
         <WorkspacePanel
+          sessionId={session?.id ?? null}
           sortedAnnotations={sortedAnnotations}
           sortedNotes={sortedNotes}
           selectedAnnotationId={selectedAnnotationId}

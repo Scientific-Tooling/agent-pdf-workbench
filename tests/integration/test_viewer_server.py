@@ -4,14 +4,13 @@ import json
 import tempfile
 import threading
 import unittest
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from agent_pdf_workbench.service import AgentPdfWorkbenchService
-from agent_pdf_workbench.viewer_server import _create_handler, _is_within_directory
+from agent_pdf_workbench.viewer_server import _create_handler, _is_within_directory, _ViewerHTTPServer
 
 
 class ViewerServerTest(unittest.TestCase):
@@ -34,7 +33,7 @@ class ViewerServerApiE2ETest(unittest.TestCase):
             db_path = Path(tmp_dir) / "events.db"
             service = AgentPdfWorkbenchService(db_path=db_path)
             handler_cls = _create_handler(service)
-            server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+            server = _ViewerHTTPServer(("127.0.0.1", 0), handler_cls)
             host, port = server.server_address
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -160,7 +159,7 @@ class ViewerServerApiE2ETest(unittest.TestCase):
             db_path = Path(tmp_dir) / "events.db"
             service = AgentPdfWorkbenchService(db_path=db_path)
             handler_cls = _create_handler(service, allow_remote_pdf=True)
-            server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+            server = _ViewerHTTPServer(("127.0.0.1", 0), handler_cls)
             host, port = server.server_address
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -204,7 +203,7 @@ class ViewerServerHardeningTest(unittest.TestCase):
         db_path = Path(self._tmp.name) / "events.db"
         service = AgentPdfWorkbenchService(db_path=db_path)
         handler_cls = _create_handler(service)
-        self._server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+        self._server = _ViewerHTTPServer(("127.0.0.1", 0), handler_cls)
         host, port = self._server.server_address
         thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         thread.start()
@@ -405,7 +404,7 @@ class ViewerServerHardeningTest(unittest.TestCase):
 
             service = AgentPdfWorkbenchService(db_path=Path(tmp_dir) / "events.db")
             handler_cls = _create_handler(service, max_pdf_bytes=8)
-            server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+            server = _ViewerHTTPServer(("127.0.0.1", 0), handler_cls)
             host, port = server.server_address
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -440,7 +439,7 @@ class BrowserAttackSurfaceTest(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         service = AgentPdfWorkbenchService(db_path=Path(self._tmp.name) / "events.db")
-        self._server = ThreadingHTTPServer(("127.0.0.1", 0), _create_handler(service))
+        self._server = _ViewerHTTPServer(("127.0.0.1", 0), _create_handler(service))
         host, port = self._server.server_address
         threading.Thread(target=self._server.serve_forever, daemon=True).start()
         self._host = host
@@ -576,7 +575,7 @@ class SessionDiscoveryTest(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         service = AgentPdfWorkbenchService(db_path=Path(self._tmp.name) / "events.db")
-        self._server = ThreadingHTTPServer(("127.0.0.1", 0), _create_handler(service))
+        self._server = _ViewerHTTPServer(("127.0.0.1", 0), _create_handler(service))
         host, port = self._server.server_address
         threading.Thread(target=self._server.serve_forever, daemon=True).start()
         self._base = f"http://{host}:{port}"

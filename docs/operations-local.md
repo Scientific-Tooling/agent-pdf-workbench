@@ -33,6 +33,10 @@ apw-viewer-server \
 - The server always binds to `127.0.0.1` by default.
 - Use `APW_LOG_LEVEL=DEBUG` for verbose output during troubleshooting.
 
+Startup uses the bound IP address directly and does not require a reverse-DNS
+lookup. A slow or unavailable hostname resolver should not prevent a loopback
+viewer from starting, including on macOS.
+
 Stop a foreground viewer with Ctrl+C. On Unix, SIGTERM also shuts the viewer down
 and closes its HTTP server; shutdown is scheduled off the serving thread so it
 cannot wait on itself. Stop other APW writers before copying a database backup.

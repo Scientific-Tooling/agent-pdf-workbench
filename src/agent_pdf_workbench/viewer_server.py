@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from socketserver import TCPServer
 from threading import Thread
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
@@ -30,6 +31,14 @@ except Exception:
 
 
 WEB_DIR = Path(__file__).with_name("web")
+
+
+class _ViewerHTTPServer(ThreadingHTTPServer):
+    def server_bind(self) -> None:
+        # HTTPServer's reverse-DNS lookup can block startup on macOS even for
+        # 127.0.0.1. The viewer needs the bound address, not a resolved hostname.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
 # Maximum POST body size (1 MiB). Protects against runaway payloads.
 _MAX_REQUEST_BODY = 1 * 1024 * 1024
@@ -983,7 +992,7 @@ def main() -> int:
     _check_web_assets()
 
     service = AgentPdfWorkbenchService(db_path=args.db_path)
-    server = ThreadingHTTPServer(
+    server = _ViewerHTTPServer(
         (args.host, args.port),
         _create_handler(
             service,

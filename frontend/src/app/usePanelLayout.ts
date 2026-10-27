@@ -77,6 +77,21 @@ export function usePanelLayout({ hasDocument }: PanelLayoutParams) {
     };
   }, []);
 
+  useEffect(() => {
+    if (tier !== "narrow" || !hasDocument || (!panels.controlsOpen && !panels.workspaceOpen))
+      return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      setPanels({ controlsOpen: false, workspaceOpen: false });
+      savePanelLayout({ tier, controlsOpen: false, workspaceOpen: false });
+      document
+        .getElementById(panels.controlsOpen ? "toggleControlsBtn" : "toggleWorkspaceBtn")
+        ?.focus();
+    };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [tier, hasDocument, panels.controlsOpen, panels.workspaceOpen]);
+
   function update(next: PanelState): void {
     setPanels(next);
     savePanelLayout({ tier, ...next });
@@ -90,8 +105,26 @@ export function usePanelLayout({ hasDocument }: PanelLayoutParams) {
     tier,
     controlsOpen,
     workspaceOpen: panels.workspaceOpen,
-    toggleControls: () => update({ ...panels, controlsOpen: !panels.controlsOpen }),
-    toggleWorkspace: () => update({ ...panels, workspaceOpen: !panels.workspaceOpen }),
+    toggleControls: () =>
+      update({
+        ...panels,
+        controlsOpen: !panels.controlsOpen,
+        workspaceOpen: tier === "narrow" ? false : panels.workspaceOpen,
+      }),
+    toggleWorkspace: () =>
+      update({
+        ...panels,
+        workspaceOpen: !panels.workspaceOpen,
+        controlsOpen: tier === "narrow" ? false : panels.controlsOpen,
+      }),
+    toggleFocus: () =>
+      update(
+        panels.controlsOpen || panels.workspaceOpen
+          ? { controlsOpen: false, workspaceOpen: false }
+          : tier === "narrow"
+            ? { controlsOpen: false, workspaceOpen: true }
+            : TIER_DEFAULTS[tier],
+      ),
     closePanelsOverDocument: () => {
       // Tapping the backdrop in drawer mode dismisses whatever is open.
       if (tier === "narrow") {

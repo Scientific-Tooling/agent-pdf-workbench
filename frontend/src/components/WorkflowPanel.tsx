@@ -1,263 +1,189 @@
-import { useEffect, useState } from "react";
-import { apiGet, apiPost } from "../services/api";
-import type { Annotation, Note } from "../types/types";
-
-interface EvidenceItem {
-  kind: "annotation" | "note";
-  id: string;
-  content: { comment?: string; title?: string; markdown?: string };
-  passages: { page: number; quote: string }[];
-  review: { status: string };
-}
-interface Preview {
-  id: string;
-  counts: { addition: number; unchanged: number; conflict: number };
-  items: EvidenceItem[];
-  plan: unknown;
-  applied: boolean;
-}
-interface WorkflowStatus {
-  enabled: boolean;
-  question?: string;
-  papers?: {
-    key: string;
-    title: string;
-    phase: string;
-    session_id: string | null;
-    viewer_url: string | null;
-  }[];
-  preview?: Preview | null;
-  brief?: { text: string; passage_urls: string[] } | null;
-}
+import type { HostedWorkflow } from "../app/useHostedWorkflow";
 
 export function WorkflowPanel({
-  sessionId,
-  annotations,
-  notes,
+  workflow,
+  view,
+  onOpenBrief,
 }: {
-  sessionId: string | null;
-  annotations: Annotation[];
-  notes: Note[];
+  workflow: HostedWorkflow;
+  view: "evidence" | "brief";
+  onOpenBrief: () => void;
 }) {
-  const [state, setState] = useState<WorkflowStatus | null>(null);
-  const [selected, setSelected] = useState<string[]>([]);
-  const [preview, setPreview] = useState<Preview | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    let active = true;
-    if (sessionId) {
-      apiGet<WorkflowStatus>(`/api/workflow?session_id=${encodeURIComponent(sessionId)}`)
-        .then((value) => {
-          if (!active) return;
-          setState(value);
-          setPreview(value.preview ?? null);
-          setSelected(value.preview?.items.map((item) => `${item.kind}:${item.id}`) ?? []);
-          setMessage("");
-        })
-        .catch((error: unknown) => {
-          if (active)
-            setMessage(error instanceof Error ? error.message : "Could not load workflow");
-        });
-    }
-    return () => {
-      active = false;
-    };
-  }, [sessionId]);
-
-  if (!sessionId || !state?.enabled) return null;
-
-  function toggle(key: string) {
-    setSelected((values) =>
-      values.includes(key) ? values.filter((value) => value !== key) : [...values, key],
-    );
-    setPreview(null);
-    setMessage("");
-  }
-
-  async function run(action: "preview" | "apply" | "brief") {
-    setBusy(true);
-    setMessage("");
-    try {
-      const result = await apiPost<{
-        preview?: Preview;
-        applied?: boolean;
-        brief_error?: string;
-        result?: unknown;
-      }>("/api/workflow", {
-        action,
-        session_id: sessionId,
-        preview_id: preview?.id,
-        annotation_ids: selected
-          .filter((value) => value.startsWith("annotation:"))
-          .map((value) => value.slice("annotation:".length)),
-        note_ids: selected
-          .filter((value) => value.startsWith("note:"))
-          .map((value) => value.slice("note:".length)),
-      });
-      if (action === "preview") {
-        setPreview(result.preview ?? null);
-      } else {
-        const latest = await apiGet<WorkflowStatus>(
-          `/api/workflow?session_id=${encodeURIComponent(sessionId ?? "")}`,
-        );
-        setState(latest);
-        setPreview(latest.preview ?? null);
-        setMessage(
-          result.brief_error
-            ? `Evidence imported. Brief needs attention: ${result.brief_error}`
-            : result.applied === false
-              ? `Import was not applied. Inspect conflicts and preview again: ${JSON.stringify(result.result)}`
-              : action === "apply"
-                ? "Evidence imported. Its review status is unchanged. Your brief is ready."
-                : "Your brief is ready.",
-        );
-      }
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Workflow operation failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
+  const { data, preview, busy, selected, message, error, run } = workflow;
+  if (!data?.enabled) return null;
+  const brief = data.brief;
   function downloadBrief() {
-    const url = URL.createObjectURL(
-      new Blob([state?.brief?.text ?? ""], { type: "text/markdown" }),
-    );
+    const url = URL.createObjectURL(new Blob([brief?.text ?? ""], { type: "text/markdown" }));
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = "reading-brief.md";
     anchor.click();
     URL.revokeObjectURL(url);
   }
-
   return (
-    <details className="card collapsible workflow-card" open>
-      <summary>
-        <span className="collapsible-arrow">›</span>
-        <h2 style={{ margin: 0 }}>Evidence & brief</h2>
-      </summary>
-      <div className="card-body">
-        <p className="workflow-question">{state.question}</p>
-        {!!state.papers?.length && (
-          <nav aria-label="Project papers" className="workflow-papers">
-            <h3>
-              Project papers <span className="muted">({state.papers.length})</span>
-            </h3>
-            <ul>
-              {state.papers.map((paper) => (
-                <li key={paper.key}>
-                  {paper.viewer_url ? (
-                    <a
-                      href={paper.viewer_url}
-                      aria-current={paper.session_id === sessionId ? "page" : undefined}
-                    >
-                      {paper.key}: {paper.title}
-                    </a>
-                  ) : (
-                    <span>
-                      {paper.key}: {paper.title}
-                    </span>
-                  )}
-                  <small>{paper.phase}</small>
-                </li>
-              ))}
-            </ul>
-            <p className="muted">
-              Add papers with <code>sci add</code>, then refresh this page. The brief includes
-              evidence from every paper.
-            </p>
-          </nav>
-        )}
-        <p className="muted">Choose saved highlights or notes to keep as evidence.</p>
-        <fieldset disabled={busy} className="workflow-selection">
-          <legend className="sr-only">Evidence selection</legend>
-          {annotations.map((item) => (
-            <label key={`annotation:${item.id}`}>
-              <input
-                type="checkbox"
-                checked={selected.includes(`annotation:${item.id}`)}
-                onChange={() => toggle(`annotation:${item.id}`)}
-              />
-              <span>
-                Page {item.page}: {item.quote || "(no text quote)"}
-              </span>
-            </label>
-          ))}
-          {notes.map((item) => (
-            <label key={`note:${item.id}`}>
-              <input
-                type="checkbox"
-                checked={selected.includes(`note:${item.id}`)}
-                onChange={() => toggle(`note:${item.id}`)}
-              />
-              <span>Note: {item.title || "Untitled"}</span>
-            </label>
-          ))}
-          {!annotations.length && !notes.length && (
-            <p className="muted">Highlight a passage in the PDF to get started.</p>
-          )}
-        </fieldset>
-        <button disabled={busy || !selected.length} onClick={() => void run("preview")}>
-          Preview selected evidence
-        </button>
-        {preview && (
-          <section aria-label="Import preview" className="workflow-preview">
-            <p>
-              {preview.counts.addition} new · {preview.counts.unchanged} unchanged ·{" "}
-              {preview.counts.conflict} conflicts
-            </p>
-            {preview.items.map((item) => (
-              <div key={`${item.kind}:${item.id}`}>
-                {item.passages.map((passage, index) => (
-                  <blockquote key={index}>
-                    Page {passage.page}: {passage.quote}
-                  </blockquote>
-                ))}
-                <p>{item.content.comment || item.content.title}</p>
-                {item.content.markdown && <pre>{item.content.markdown}</pre>}
-                <p className="muted">Review status: {item.review.status}</p>
-              </div>
-            ))}
-            <details>
-              <summary>Import details</summary>
-              <pre>{JSON.stringify(preview.plan, null, 2)}</pre>
-            </details>
-            <button
-              disabled={busy || preview.counts.conflict > 0 || preview.applied}
-              onClick={() => void run("apply")}
-            >
-              {preview.applied ? "Evidence imported" : "Import evidence & create brief"}
-            </button>
-            {preview.counts.conflict > 0 && (
-              <p className="muted">Resolve the reported conflicts before importing.</p>
+    <section
+      className="workflow-card"
+      aria-label={view === "brief" ? "Project brief" : "Evidence import"}
+    >
+      {view === "evidence" ? (
+        <>
+          <div className="selection-actions">
+            <span className="muted">
+              {selected.length
+                ? `${selected.length} selected`
+                : "Select highlights or notes to keep as evidence."}
+            </span>
+            {(!preview || preview.applied) && (
+              <button
+                className={preview?.applied ? "secondary-btn" : "primary-btn"}
+                disabled={busy || !selected.length}
+                onClick={() => void run("preview")}
+              >
+                Preview selected evidence
+              </button>
             )}
-          </section>
-        )}
-        <p role="status" aria-live="polite">
+          </div>
+          {preview && (
+            <section aria-label="Import preview" className="workflow-preview">
+              <details open={!preview.applied}>
+                <summary className="section-head">
+                  <span>{preview.applied ? "Imported selection" : "Review your selection"}</span>
+                  {preview.applied && <span className="status-badge success">Imported</span>}
+                </summary>
+                <p className="muted">
+                  {preview.counts.addition} new · {preview.counts.unchanged} unchanged ·{" "}
+                  {preview.counts.conflict} conflicts
+                </p>
+                {preview.items.map((item) => (
+                  <article className="preview-item" key={`${item.kind}:${item.id}`}>
+                    {item.passages.map((passage, index) => (
+                      <blockquote key={index}>
+                        <small>Page {passage.page}</small>
+                        {passage.quote}
+                      </blockquote>
+                    ))}
+                    {(item.content.comment || item.content.title) && (
+                      <p>{item.content.comment || item.content.title}</p>
+                    )}
+                    {item.content.markdown && <pre>{item.content.markdown}</pre>}
+                    <span className="status-badge">Review: {item.review.status}</span>
+                  </article>
+                ))}
+                {!preview.applied && (
+                  <button
+                    className="primary-btn"
+                    disabled={busy || preview.counts.conflict > 0}
+                    onClick={() => void run("apply")}
+                  >
+                    Import evidence & create brief
+                  </button>
+                )}
+                {preview.counts.conflict > 0 && (
+                  <p className="notice error">
+                    Resolve the reported conflicts before importing. No evidence has been changed.
+                  </p>
+                )}
+                <details className="technical-details">
+                  <summary>Import details</summary>
+                  <pre>{JSON.stringify(preview.plan, null, 2)}</pre>
+                </details>
+              </details>
+            </section>
+          )}
+          {brief && (
+            <button className="secondary-btn full-width" onClick={onOpenBrief}>
+              View project brief →
+            </button>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="section-intro">
+            <span className="eyebrow">Across your project</span>
+            <h2>A brief you can trace back.</h2>
+            <p className="muted">
+              Quotations, interpretations and source links from your imported evidence. Review
+              status stays explicit.
+            </p>
+          </div>
+          {brief ? (
+            <>
+              <div className="brief-stats">
+                {brief.counts && (
+                  <>
+                    <div>
+                      <strong>{brief.counts.evidence}</strong>
+                      <span>Evidence items</span>
+                    </div>
+                    <div>
+                      <strong>{brief.counts.unreviewed}</strong>
+                      <span>Unreviewed</span>
+                    </div>
+                  </>
+                )}
+                <div>
+                  <strong>{brief.passage_urls.length}</strong>
+                  <span>Source links</span>
+                </div>
+              </div>
+              <button className="primary-btn full-width" onClick={downloadBrief}>
+                Download brief
+              </button>
+              <details className="brief-text">
+                <summary>Read the brief</summary>
+                <pre>{brief.text}</pre>
+              </details>
+              <div className="section-intro">
+                <h3>Return to the sources</h3>
+                <p className="muted">Each link opens its paper and supporting passage.</p>
+              </div>
+              <ol className="source-links">
+                {brief.passage_urls.map((url, index) => (
+                  <li key={`${url}:${index}`}>
+                    <a href={url}>
+                      Open supporting passage {index + 1}
+                      <span aria-hidden="true"> ↗</span>
+                    </a>
+                  </li>
+                ))}
+              </ol>
+            </>
+          ) : (
+            <div className="empty-state">
+              <h3>Your evidence comes first.</h3>
+              <p>
+                Choose saved highlights in Evidence, preview the selection, then import it to create
+                your project brief.
+              </p>
+              <p>Papers with no imported evidence stay visible as coverage gaps.</p>
+            </div>
+          )}
+          <button
+            className={brief ? "secondary-btn full-width" : "primary-btn full-width"}
+            disabled={busy}
+            onClick={() => void run("brief")}
+          >
+            {brief
+              ? "Update brief from imported evidence"
+              : "Generate brief from imported evidence"}
+          </button>
+        </>
+      )}
+      {(busy || message) && (
+        <p
+          className={`notice ${error ? "error" : ""}`}
+          role={error ? "alert" : "status"}
+          aria-live="polite"
+        >
           {busy ? "Working…" : message}
         </p>
-        {(preview?.applied || state.brief || (state.papers?.length ?? 0) > 1) && (
-          <button disabled={busy} onClick={() => void run("brief")}>
-            Generate brief from imported evidence
-          </button>
-        )}
-        {state.brief && (
-          <section aria-label="Reading brief">
-            <button onClick={downloadBrief}>Download brief</button>
-            {state.brief.passage_urls.map((url, index) => (
-              <p key={url}>
-                <a href={url}>Open supporting passage {index + 1}</a>
-              </p>
-            ))}
-            <details>
-              <summary>Read the brief</summary>
-              <pre>{state.brief.text}</pre>
-            </details>
-          </section>
-        )}
-      </div>
-    </details>
+      )}
+      {error && workflow.operationDetails != null && (
+        <details className="technical-details">
+          <summary>Conflict details</summary>
+          <pre>{JSON.stringify(workflow.operationDetails, null, 2)}</pre>
+        </details>
+      )}
+    </section>
   );
 }

@@ -6,6 +6,6 @@ export default defineConfig({
     // into jsdom with a `@vitest-environment` docblock. Loading jsdom for every
     // file made worker startup the slowest part of the run.
     environment: "node",
-    include: ["frontend/src/**/*.test.ts"],
+    include: ["frontend/src/**/*.test.{ts,tsx}"],
   },
 });

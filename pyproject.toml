@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-pdf-workbench"
-version = "0.3.0"
+version = "0.3.1"
 description = "Agent-aware PDF workspace with observable user actions for AI-assisted reading."
 readme = "README.md"
 requires-python = ">=3.12"

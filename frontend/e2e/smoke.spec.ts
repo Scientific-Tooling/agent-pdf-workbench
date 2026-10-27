@@ -6,8 +6,8 @@ test("app shell renders core controls", async ({ page }) => {
   await expect(page.locator("#paperRef")).toBeVisible();
   await expect(page.locator("#pdfUri")).toBeVisible();
   await expect(page.locator("#openPaperBtn")).toBeVisible();
-  await expect(page.locator("#closePaperBtn")).toBeVisible();
-  await expect(page.locator("#sessionInfo")).toBeVisible();
+  await expect(page.locator("#closePaperBtn")).toHaveCount(0);
+  await expect(page.locator("#sessionInfo")).toHaveText("—");
   await expect(page.locator("#statusText")).toBeVisible();
   await expect(page.locator("#searchInput")).toBeVisible();
   await expect(page.locator("#fitWidthBtn")).toBeVisible();

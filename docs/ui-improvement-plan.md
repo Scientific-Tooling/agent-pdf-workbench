@@ -2,6 +2,25 @@
 
 Created: 2026-09-02
 
+## October 2026 reading workspace redesign
+
+Version 0.3.1 reorganizes the reader around the paper: project navigation and
+the research question on the left, resizable reading space in the middle, and
+Evidence, Notes and Brief tabs on the right. Focus mode hides both sidebars;
+mobile navigation opens one drawer at a time. Notes link to readable quotations,
+while identifiers, activity and import diagnostics remain expandable.
+
+The hosted workflow now uses one session-bound state model shared by navigation
+and evidence views. Delayed status and import responses cannot update a different
+paper, duplicate clicks submit once, and rejected imports retain conflict details.
+Source verification, review status, storage and import semantics are unchanged.
+
+Coverage includes tab keyboard navigation and draft retention, pointer/keyboard
+resizing, responsive fit, drawer dismissal, light/dark contrast, annotation and
+session races, and the installed sci two-paper highlight-to-brief journey.
+The historical batches below remain a record of the original UI review;
+continuous scrolling is still a separate future improvement.
+
 This plan turns the September 2026 UI review into batched engineering work. It
 covers the reading surface only; API, storage, and agent-facing behaviour are
 out of scope and unchanged.

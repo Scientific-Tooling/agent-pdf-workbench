@@ -236,7 +236,7 @@ test("opening a paper never folds a panel out from under the reader", async ({ p
   await page.setViewportSize({ width: 1280, height: 900 });
   await openPaper(page, "p_e2e_no_surprise_fold");
 
-  await expect(page.locator("#closePaperBtn")).toBeVisible();
+  await expect(page.locator(".panel.controls")).toBeVisible();
   await expect(page.locator(".panel.workspace")).toBeVisible();
 
   const fit = await stageFit(page);
@@ -250,17 +250,18 @@ test("the sidebar reports the paper, not the plumbing", async ({ page }) => {
 
   // The session card collapses to a line: which paper, its state, and a way out.
   await expect(page.locator("#sessionPaperRef")).toHaveText("p_e2e_sidebar_hierarchy");
-  await expect(page.locator("#closePaperBtn")).toBeVisible();
+  await expect(page.locator(".panel.controls")).toBeVisible();
 
   // The form and the raw session id are available, but not in the way.
   await expect(page.locator("#paperRef")).toBeHidden();
+  await page.getByText("Session details", { exact: true }).click();
   await page.locator("#sessionDetailsToggle").click();
   await expect(page.locator("#paperRef")).toBeVisible();
   await expect(page.locator("#sessionInfo")).toContainText("ps_");
 
   // A recent row names the paper and the file, never the wrapped absolute path.
   const recentText = await page.locator("#recentList li").first().innerText();
-  expect(recentText).toContain("p_e2e_sidebar_hierarchy");
+  expect(recentText).not.toContain("p_e2e_sidebar_hierarchy");
   expect(recentText).toContain("apw-responsive-e2e.pdf");
   expect(recentText).not.toContain("/tmp/");
   await expect(page.locator("#recentList li").first()).toHaveAttribute("title", /\.pdf$/);
@@ -269,7 +270,64 @@ test("the sidebar reports the paper, not the plumbing", async ({ page }) => {
   await expect(page.locator("#outlineList")).toHaveCount(0);
 
   // Section headers report what they hold.
-  await expect(page.locator(".count-pill").first()).toHaveText("0");
+  await expect(page.locator(".tab-count").first()).toHaveText("0");
+});
+
+test("workspace tabs support keyboard navigation and preserve a note draft", async ({ page }) => {
+  await page.setViewportSize({ width: 1512, height: 900 });
+  await openPaper(page, "p_e2e_workspace_tabs");
+  await page.getByRole("tab", { name: /^Evidence/ }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("tab", { name: /^Notes/ })).toBeFocused();
+  await page.locator("#noteTitleInput").fill("A thought to return to");
+  await page.getByRole("tab", { name: /^Notes/ }).focus();
+  await page.keyboard.press("End");
+  await expect(page.getByRole("tab", { name: "Brief", exact: true })).toBeFocused();
+  await expect(page.locator("#noteTitleInput")).toBeHidden();
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.locator("#noteTitleInput")).toHaveValue("A thought to return to");
+});
+
+test("focus mode and keyboard or pointer resizing give space back to the paper", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1512, height: 900 });
+  await openPaper(page, "p_e2e_workspace_resize");
+  const width = () =>
+    page.locator(".panel.workspace").evaluate((el) => el.getBoundingClientRect().width);
+  const initial = await width();
+  const separator = page.getByRole("separator", { name: "Resize reading workspace" });
+  await separator.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect.poll(width).toBe(initial + 16);
+  const box = (await separator.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + 50);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 - 24, box.y + 50);
+  await page.mouse.up();
+  await expect.poll(width).toBe(initial + 40);
+  await expect.poll(async () => (await stageFit(page))!.documentFitsContent).toBe(true);
+  const before = (await stageFit(page))!.canvasWidth;
+  await page.getByRole("button", { name: "Focus on paper", exact: true }).click();
+  await expect(page.locator(".panel.controls")).toBeHidden();
+  await expect(page.locator(".panel.workspace")).toBeHidden();
+  await expect.poll(async () => (await stageFit(page))!.canvasWidth).toBeGreaterThan(before);
+  await page.getByRole("button", { name: "Show workspace", exact: true }).click();
+  await expect(page.locator(".panel.controls")).toBeVisible();
+  await expect(page.locator(".panel.workspace")).toBeVisible();
+});
+
+test("mobile drawers are exclusive and Escape returns focus to the opener", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openPaper(page, "p_e2e_exclusive_drawers");
+  await page.locator("#toggleWorkspaceBtn").click();
+  await expect(page.locator(".panel.workspace")).toBeVisible();
+  await page.locator("#toggleControlsBtn").click();
+  await expect(page.locator(".panel.controls")).toBeVisible();
+  await expect(page.locator(".panel.workspace")).toBeHidden();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".panel.controls")).toBeHidden();
+  await expect(page.locator("#toggleControlsBtn")).toBeFocused();
 });
 
 test("completed annotation telemetry cannot erase a newer text selection", async ({ page }) => {
@@ -301,6 +359,7 @@ test("completed annotation telemetry cannot erase a newer text selection", async
       return selection.toString();
     }, index);
   }
+  await page.getByText("Highlight tools & comments", { exact: true }).click();
   await selectSpan(0);
   await page.locator("#highlightBtn").click();
   await started;
@@ -318,6 +377,8 @@ test("a long quote is clamped in the list but shown in full when selected", asyn
 
   async function annotate(comment: string, fromSpan: number, toSpan: number): Promise<void> {
     // Fill the comment first: focusing an input clears the document selection.
+    if (!(await page.locator("#annotationCommentInput").isVisible()))
+      await page.getByText("Highlight tools & comments", { exact: true }).click();
     await page.locator("#annotationCommentInput").fill(comment);
     await page.evaluate(
       ({ fromSpan, toSpan }) => {

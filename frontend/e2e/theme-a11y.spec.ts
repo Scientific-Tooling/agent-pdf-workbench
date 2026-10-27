@@ -91,6 +91,9 @@ async function contrastReport(page: Page) {
       closeButton: "#closePaperBtn",
       fitWidth: "#fitWidthBtn",
       sectionHeading: ".panel.workspace h2",
+      focusButton: "#focusModeBtn",
+      selectedTab: ".tab-btn[aria-selected=true]",
+      primaryButton: "#saveNoteBtn",
     };
     const report: Record<string, number | null> = {};
     for (const [name, selector] of Object.entries(targets)) {

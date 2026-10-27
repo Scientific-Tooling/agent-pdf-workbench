@@ -56,6 +56,11 @@ function ensureSamplePdf(): string {
 async function openPaperForm(page: import("@playwright/test").Page): Promise<void> {
   // With a paper open the session form folds behind "Change paper"; with none
   // it is the whole card.
+  if (
+    (await page.locator("#sessionDetailsToggle").count()) &&
+    !(await page.locator("#sessionDetailsToggle").isVisible())
+  )
+    await page.getByText("Session details", { exact: true }).click();
   const toggle = page.locator("#sessionDetailsToggle");
   if ((await toggle.count()) > 0) {
     await toggle.click();
@@ -105,13 +110,18 @@ test("reader main path: open -> search -> annotate -> note -> export", async ({
   await page.locator("#searchBtn").click();
   await expect(page.locator("#searchInfo")).not.toContainText("0 matches");
 
+  if (!(await page.locator("#annotationCommentInput").isVisible()))
+    await page.getByText("Highlight tools & comments", { exact: true }).click();
   await page.locator("#annotationCommentInput").fill("playwright highlight");
   await page.locator("#annotationTagsInput").fill("e2e,main-path");
 
+  if (!(await page.locator("#highlightBtn").isVisible()))
+    await page.getByText("Highlight tools & comments", { exact: true }).click();
   await selectFirstTextSpan(page);
   await page.locator("#highlightBtn").click();
   await expect(page.locator("#annotationList")).not.toContainText("No annotations yet");
 
+  await page.getByRole("tab", { name: /^Notes/ }).click();
   await page.locator("#noteTitleInput").fill("E2E Main Note");
   const annotationsResp = await request.get(
     `/api/annotations?session_id=${encodeURIComponent(sessionId)}&limit=100`,
@@ -123,7 +133,9 @@ test("reader main path: open -> search -> annotate -> note -> export", async ({
   };
   expect(annotationsJson.count).toBeGreaterThan(0);
   const selectedAnnotationId = annotationsJson.annotations[0]?.id ?? "";
-  await page.locator("#noteLinkedIdsInput").fill(selectedAnnotationId);
+  await page.locator(".linked-passages > summary").click();
+  await page.locator(".linked-passages .check-row input").first().check();
+  await expect(page.locator("#noteLinkedIdsInput")).toHaveValue(selectedAnnotationId);
   await page.locator("#noteMarkdownInput").fill("This note is linked to the highlighted evidence.");
   await page.locator("#saveNoteBtn").click();
   await expect(page.locator("#notesList")).toContainText("E2E Main Note");
@@ -137,6 +149,8 @@ test("reader main path: open -> search -> annotate -> note -> export", async ({
   const notesJson = (await notesResp.json()) as { count: number };
   expect(notesJson.count).toBeGreaterThan(0);
 
+  await page.getByRole("tab", { name: "Brief", exact: true }).click();
+  await page.getByText("Export annotations & notes", { exact: true }).click();
   const [jsonDownload] = await Promise.all([
     page.waitForEvent("download"),
     page.locator("#exportJsonBtn").click(),
@@ -149,6 +163,7 @@ test("reader main path: open -> search -> annotate -> note -> export", async ({
   ]);
   expect(mdDownload.suggestedFilename()).toContain("p_e2e_main_path");
 
+  await page.getByText("Activity & details", { exact: true }).click();
   await page.locator("#refreshBtn").click();
   await expect(page.locator("#eventsList")).toContainText("annotation_upsert");
   await expect(page.locator("#eventsList")).toContainText("note_upsert");
@@ -185,6 +200,8 @@ test("closing a session resets active workspace state", async ({ page }) => {
   await expect(page.locator("#statusText")).toContainText("session ready");
   await expect(page.locator("#sessionInfo")).toContainText("ps_");
 
+  if (!(await page.locator("#closePaperBtn").isVisible()))
+    await page.getByText("Session details", { exact: true }).click();
   await page.locator("#closePaperBtn").click();
   await expect(page.locator("#statusText")).toContainText("session closed");
   await expect(page.locator("#sessionInfo")).toHaveText("—");
@@ -203,12 +220,14 @@ test("recent paper load reopens session directly", async ({ page }) => {
   const firstSessionId = ((await page.locator("#sessionInfo").textContent()) ?? "").trim();
   expect(firstSessionId.startsWith("ps_")).toBeTruthy();
 
+  if (!(await page.locator("#closePaperBtn").isVisible()))
+    await page.getByText("Session details", { exact: true }).click();
   await page.locator("#closePaperBtn").click();
   await expect(page.locator("#sessionInfo")).toHaveText("—");
 
   const recentItem = page
     .locator("#recentList li")
-    .filter({ hasText: "p_e2e_recent_resume" })
+    .filter({ hasText: "apw-playwright-e2e.pdf" })
     .first();
   await expect(recentItem).toBeVisible();
   await recentItem.getByRole("button", { name: "Load" }).click();
@@ -233,16 +252,23 @@ test("annotations and notes survive reopening the same paper", async ({ page }) 
   await expect(page.locator("#statusText")).toContainText("session ready");
   const firstSessionId = ((await page.locator("#sessionInfo").textContent()) ?? "").trim();
 
+  if (!(await page.locator("#annotationCommentInput").isVisible()))
+    await page.getByText("Highlight tools & comments", { exact: true }).click();
   await page.locator("#annotationCommentInput").fill("durable highlight");
+  if (!(await page.locator("#highlightBtn").isVisible()))
+    await page.getByText("Highlight tools & comments", { exact: true }).click();
   await selectFirstTextSpan(page);
   await page.locator("#highlightBtn").click();
   await expect(page.locator("#annotationList")).toContainText("durable highlight");
 
+  await page.getByRole("tab", { name: /^Notes/ }).click();
   await page.locator("#noteTitleInput").fill("Durable note");
   await page.locator("#noteMarkdownInput").fill("Should still be here next time.");
   await page.locator("#saveNoteBtn").click();
   await expect(page.locator("#notesList")).toContainText("Durable note");
 
+  if (!(await page.locator("#closePaperBtn").isVisible()))
+    await page.getByText("Session details", { exact: true }).click();
   await page.locator("#closePaperBtn").click();
   await expect(page.locator("#sessionInfo")).toHaveText("—");
 
@@ -336,6 +362,7 @@ test("a slower previous document cannot replace a newer paper", async ({ page })
 
   // The session identity is mounted before the deliberately slow PDF load
   // finishes, so a second open can retire the first document in flight.
+  await page.getByText("Session details", { exact: true }).click();
   await expect(page.locator("#sessionDetailsToggle")).toBeVisible();
   await page.locator("#sessionDetailsToggle").click();
   await page.locator("#paperRef").fill("p_e2e_race_second");
@@ -470,10 +497,14 @@ test("saving several times in a row does not stack toasts over the workspace", a
   await page.locator("#openPaperBtn").click();
   await expect(page.locator("#statusText")).toContainText("session ready");
 
+  if (!(await page.locator("#highlightBtn").isVisible()))
+    await page.getByText("Highlight tools & comments", { exact: true }).click();
   await selectFirstTextSpan(page);
   await page.locator("#highlightBtn").click();
+  await page.getByRole("tab", { name: /^Notes/ }).click();
   await page.locator("#noteTitleInput").fill("First note");
   await page.locator("#saveNoteBtn").click();
+  await page.getByRole("tab", { name: /^Notes/ }).click();
   await page.locator("#noteTitleInput").fill("Second note");
   await page.locator("#saveNoteBtn").click();
 

@@ -1,9 +1,12 @@
+import { useState } from "react";
 import { buildEventLines } from "../utils/timeline";
 import { WorkflowPanel } from "./WorkflowPanel";
+import type { HostedWorkflow } from "../app/useHostedWorkflow";
 import type { ActionEvent, Annotation, Note, SearchResult } from "../types/types";
 
 interface WorkspacePanelProps {
   sessionId: string | null;
+  workflow: HostedWorkflow;
   sortedAnnotations: Annotation[];
   sortedNotes: Note[];
   selectedAnnotationId: string | null;
@@ -39,266 +42,367 @@ interface WorkspacePanelProps {
 }
 
 export function WorkspacePanel(props: WorkspacePanelProps) {
+  const [tab, setTab] = useState("evidence");
   const {
-    sortedAnnotations,
-    sortedNotes,
+    workflow,
+    sortedAnnotations: annotations,
+    sortedNotes: notes,
     selectedAnnotationId,
-    annotationCommentInput,
-    annotationTagsInput,
     selectedNoteId,
-    noteTitleInput,
-    noteLinkedIdsInput,
-    noteMarkdownInput,
-    searchQuery,
-    searchResults,
-    searchCursor,
-    events,
-    onCreateAnnotation,
-    onDeleteSelectedAnnotation,
-    onAnnotationCommentInputChange,
-    onAnnotationTagsInputChange,
-    onUpdateSelectedAnnotationMeta,
-    onSelectAnnotation,
-    onJumpToAnnotation,
-    onNoteTitleInputChange,
-    onNoteLinkedIdsInputChange,
-    onNoteMarkdownInputChange,
-    onSaveNote,
-    onNewNoteDraft,
-    onDeleteSelectedNote,
-    onSelectNote,
-    onJumpToSearchResult,
-    onExportJson,
-    onExportMarkdown,
-    onRefreshWorkspace,
-    onError,
   } = props;
-
+  const tabs = [
+    { id: "evidence", label: "Evidence", count: annotations.length },
+    { id: "notes", label: "Notes", count: notes.length },
+    { id: "brief", label: "Brief" },
+  ];
+  const hosted = workflow.data?.enabled;
+  const linkedIds = props.noteLinkedIdsInput
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  async function safely(operation: () => Promise<void>) {
+    try {
+      await operation();
+    } catch (error) {
+      props.onError(error, "Could not save this change");
+    }
+  }
   return (
     <aside className="panel workspace" aria-label="Annotations, notes and export">
-      <WorkflowPanel
-        key={props.sessionId}
-        sessionId={props.sessionId}
-        annotations={sortedAnnotations}
-        notes={sortedNotes}
-      />
-      {/* Annotation section */}
-      <details className="card collapsible" open>
-        <summary>
-          <span className="collapsible-arrow">›</span>
-          <h2 style={{ margin: 0 }}>Annotations</h2>
-          <span className="pill count-pill" title="Annotations on this paper">
-            {sortedAnnotations.length}
-          </span>
-        </summary>
-        <div className="card-body">
-          <div className="row">
-            <button
-              id="highlightBtn"
-              className="amber-btn"
-              onClick={async () => {
-                try {
-                  await onCreateAnnotation("highlight");
-                } catch (error) {
-                  onError(error, "Failed to create highlight");
-                }
-              }}
-            >
-              Highlight
-            </button>
-            <button
-              id="underlineBtn"
-              className="rose-btn"
-              onClick={async () => {
-                try {
-                  await onCreateAnnotation("underline");
-                } catch (error) {
-                  onError(error, "Failed to create underline");
-                }
-              }}
-            >
-              Underline
-            </button>
-            <button
-              id="deleteAnnotationBtn"
-              className="danger-btn"
-              onClick={async () => {
-                try {
-                  await onDeleteSelectedAnnotation();
-                } catch (error) {
-                  onError(error, "Failed to delete annotation");
-                }
-              }}
-            >
-              Delete
-            </button>
+      <header className="workspace-heading">
+        <span className="eyebrow">Your reading workspace</span>
+        <h2>Make the useful parts yours.</h2>
+      </header>
+      <div className="workspace-tabs" role="tablist" aria-label="Reading tools">
+        {tabs.map((item, index) => (
+          <button
+            key={item.id}
+            id={`tab-${item.id}`}
+            className="tab-btn"
+            role="tab"
+            aria-selected={tab === item.id}
+            aria-controls={`panel-${item.id}`}
+            tabIndex={tab === item.id ? 0 : -1}
+            onClick={() => setTab(item.id)}
+            onKeyDown={(event) => {
+              const next =
+                event.key === "ArrowRight"
+                  ? (index + 1) % tabs.length
+                  : event.key === "ArrowLeft"
+                    ? (index + tabs.length - 1) % tabs.length
+                    : event.key === "Home"
+                      ? 0
+                      : event.key === "End"
+                        ? tabs.length - 1
+                        : -1;
+              if (next >= 0) {
+                event.preventDefault();
+                setTab(tabs[next].id);
+                document.getElementById(`tab-${tabs[next].id}`)?.focus();
+              }
+            }}
+          >
+            {item.label}
+            {item.count !== undefined && <span className="tab-count">{item.count}</span>}
+          </button>
+        ))}
+      </div>
+      <div className="workspace-body">
+        {props.searchQuery && (
+          <details className="search-results" open>
+            <summary>
+              Search results <span className="count-pill">{props.searchResults.length}</span>
+            </summary>
+            <ul id="searchResultsList" className="list compact-list">
+              {!props.searchResults.length && (
+                <li className="muted">No matches in this document.</li>
+              )}
+              {props.searchResults.map((result, index) => (
+                <li
+                  key={`${result.page}:${index}`}
+                  className={index === props.searchCursor ? "selected" : undefined}
+                >
+                  <button
+                    className="ghost-btn text-card"
+                    onClick={() => void safely(() => props.onJumpToSearchResult(index))}
+                  >
+                    <span className="ann-page">Page {result.page}</span>
+                    {result.snippet}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+        <section
+          id="panel-evidence"
+          role="tabpanel"
+          aria-labelledby="tab-evidence"
+          tabIndex={0}
+          hidden={tab !== "evidence"}
+        >
+          <div className="section-intro">
+            <h3>Saved highlights</h3>
+            <p className="muted">
+              Select text in the paper to highlight it and add a thought.
+              {hosted
+                ? " Choose the passages you want to keep as evidence."
+                : " Your highlights stay with this paper."}
+            </p>
           </div>
-          <label>
-            Comment
-            <input
-              id="annotationCommentInput"
-              placeholder="Add a comment…"
-              value={annotationCommentInput}
-              onChange={(event) => onAnnotationCommentInputChange(event.target.value)}
-              onBlur={async () => {
-                await onUpdateSelectedAnnotationMeta();
-              }}
-            />
-          </label>
-          <label>
-            Tags
-            <input
-              id="annotationTagsInput"
-              placeholder="method, result, question"
-              value={annotationTagsInput}
-              onChange={(event) => onAnnotationTagsInputChange(event.target.value)}
-              onBlur={async () => {
-                await onUpdateSelectedAnnotationMeta();
-              }}
-            />
-          </label>
-          <ul id="annotationList" className="list">
-            {sortedAnnotations.length === 0 && (
-              <li className="muted" style={{ cursor: "default" }}>
-                No annotations yet
+          <ul id="annotationList" className="list annotation-list">
+            {!annotations.length && (
+              <li className="empty-state">
+                <span className="empty-mark" aria-hidden="true">
+                  “
+                </span>
+                <h3>A useful passage starts here.</h3>
+                <p>No annotations yet. Select a sentence in the PDF, then choose Highlight.</p>
               </li>
             )}
-            {sortedAnnotations.map((annotation) => (
+            {annotations.map((annotation) => (
               <li
                 key={annotation.id}
                 className={annotation.id === selectedAnnotationId ? "selected" : undefined}
-                onClick={() => onSelectAnnotation(annotation.id)}
               >
-                <div className="row" style={{ gap: "6px" }}>
+                <div className="evidence-card-top">
                   <span className={`ann-type ${annotation.type}`}>{annotation.type}</span>
-                  <span className="ann-page">p.{annotation.page}</span>
+                  <span className="ann-page">Page {annotation.page}</span>
+                  {hosted && (
+                    <label className="evidence-check">
+                      <input
+                        type="checkbox"
+                        disabled={workflow.busy}
+                        aria-label={`Include highlight on page ${annotation.page}: ${annotation.quote}`}
+                        checked={workflow.selected.includes(`annotation:${annotation.id}`)}
+                        onChange={() => workflow.toggle(`annotation:${annotation.id}`)}
+                      />
+                      <span className="sr-only">Include in evidence</span>
+                    </label>
+                  )}
                 </div>
-                <div className="quote-text">{annotation.quote || "(empty quote)"}</div>
-                {annotation.comment && <div className="muted">{annotation.comment}</div>}
-                {annotation.tags.length > 0 && (
+                <button
+                  className="ghost-btn annotation-select"
+                  aria-label={`Edit highlight on page ${annotation.page}: ${annotation.quote}`}
+                  onClick={() => props.onSelectAnnotation(annotation.id)}
+                >
+                  <span className="quote-text">{annotation.quote || "(No text quote)"}</span>
+                  {annotation.comment && (
+                    <span className="annotation-comment">{annotation.comment}</span>
+                  )}
+                </button>
+                {!!annotation.tags.length && (
                   <div className="pill-list">
                     {annotation.tags.map((tag) => (
-                      <span key={`${annotation.id}:${tag}`} className="pill">
+                      <span key={tag} className="pill">
                         {tag}
                       </span>
                     ))}
                   </div>
                 )}
                 <button
-                  className="ghost-btn"
-                  style={{ alignSelf: "flex-start", marginTop: "2px" }}
-                  onClick={async (event) => {
-                    event.stopPropagation();
-                    await onJumpToAnnotation(annotation.id);
-                  }}
+                  className="ghost-btn passage-button"
+                  onClick={() => void safely(() => props.onJumpToAnnotation(annotation.id))}
                 >
-                  Jump to ›
+                  Open passage ↗
                 </button>
               </li>
             ))}
           </ul>
-        </div>
-      </details>
-
-      {/* Notes section */}
-      <details className="card collapsible" open>
-        <summary>
-          <span className="collapsible-arrow">›</span>
-          <h2 style={{ margin: 0 }}>Notes</h2>
-          <span className="pill count-pill" title="Notes on this paper">
-            {sortedNotes.length}
-          </span>
-        </summary>
-        <div className="card-body">
-          <label>
-            Title
-            <input
-              id="noteTitleInput"
-              placeholder="Key idea from this paper"
-              value={noteTitleInput}
-              onChange={(event) => onNoteTitleInputChange(event.target.value)}
-            />
-          </label>
-          <label>
-            Linked Annotation IDs
-            <input
-              id="noteLinkedIdsInput"
-              placeholder="ann_abc123, ann_def456"
-              value={noteLinkedIdsInput}
-              onChange={(event) => onNoteLinkedIdsInputChange(event.target.value)}
-            />
-          </label>
-          <label>
-            Content
-            <textarea
-              id="noteMarkdownInput"
-              rows={5}
-              placeholder="Write notes in Markdown…"
-              value={noteMarkdownInput}
-              onChange={(event) => onNoteMarkdownInputChange(event.target.value)}
-            />
-          </label>
-          <div className="row">
-            <button
-              id="saveNoteBtn"
-              className="success-btn"
-              onClick={async () => {
-                try {
-                  await onSaveNote();
-                } catch (error) {
-                  onError(error, "Failed to save note");
-                }
-              }}
-            >
-              Save Note
-            </button>
-            <button id="newNoteBtn" className="ghost-btn" onClick={() => onNewNoteDraft()}>
-              New Note
-            </button>
-            <button
-              id="deleteNoteBtn"
-              className="danger-btn"
-              onClick={async () => {
-                try {
-                  await onDeleteSelectedNote();
-                } catch (error) {
-                  onError(error, "Failed to delete note");
-                }
-              }}
-            >
-              Delete
-            </button>
+          <details
+            className="annotation-editor"
+            key={selectedAnnotationId ?? "draft"}
+            open={!!selectedAnnotationId}
+          >
+            <summary>
+              {selectedAnnotationId ? "Edit selected highlight" : "Highlight tools & comments"}
+            </summary>
+            <fieldset disabled={workflow.busy || !props.sessionId}>
+              <label>
+                Comment
+                <input
+                  id="annotationCommentInput"
+                  placeholder="What does this passage tell you?"
+                  value={props.annotationCommentInput}
+                  onChange={(event) => props.onAnnotationCommentInputChange(event.target.value)}
+                  onBlur={() => void safely(props.onUpdateSelectedAnnotationMeta)}
+                />
+              </label>
+              <label>
+                Tags
+                <input
+                  id="annotationTagsInput"
+                  placeholder="method, result, question"
+                  value={props.annotationTagsInput}
+                  onChange={(event) => props.onAnnotationTagsInputChange(event.target.value)}
+                  onBlur={() => void safely(props.onUpdateSelectedAnnotationMeta)}
+                />
+              </label>
+              <div className="row">
+                <button
+                  id="highlightBtn"
+                  className="amber-btn"
+                  onClick={() => void safely(() => props.onCreateAnnotation("highlight"))}
+                >
+                  Highlight
+                </button>
+                <button
+                  id="underlineBtn"
+                  className="rose-btn"
+                  onClick={() => void safely(() => props.onCreateAnnotation("underline"))}
+                >
+                  Underline
+                </button>
+                <button
+                  id="deleteAnnotationBtn"
+                  className="danger-btn"
+                  disabled={!selectedAnnotationId}
+                  onClick={() => void safely(props.onDeleteSelectedAnnotation)}
+                >
+                  Delete
+                </button>
+              </div>
+            </fieldset>
+          </details>
+          {hosted && !!notes.length && (
+            <details className="notes-selection">
+              <summary>
+                Include saved notes <span className="count-pill">{notes.length}</span>
+              </summary>
+              {notes.map((note) => (
+                <label className="check-row" key={note.id}>
+                  <input
+                    type="checkbox"
+                    disabled={workflow.busy}
+                    checked={workflow.selected.includes(`note:${note.id}`)}
+                    onChange={() => workflow.toggle(`note:${note.id}`)}
+                  />
+                  <span>{note.title || "Untitled note"}</span>
+                </label>
+              ))}
+            </details>
+          )}
+          <WorkflowPanel workflow={workflow} view="evidence" onOpenBrief={() => setTab("brief")} />
+          {workflow.error && !hosted && (
+            <p className="notice error" role="alert">
+              {workflow.message}
+              <button className="secondary-btn" onClick={() => void workflow.refresh()}>
+                Retry project connection
+              </button>
+            </p>
+          )}
+        </section>
+        <section
+          id="panel-notes"
+          role="tabpanel"
+          aria-labelledby="tab-notes"
+          tabIndex={0}
+          hidden={tab !== "notes"}
+        >
+          <div className="section-intro">
+            <h3>Think alongside the paper.</h3>
+            <p className="muted">Connect your interpretation to the passages behind it.</p>
           </div>
+          <fieldset disabled={!props.sessionId || workflow.busy} className="note-editor">
+            <label>
+              Title
+              <input
+                id="noteTitleInput"
+                placeholder="A useful idea or question"
+                value={props.noteTitleInput}
+                onChange={(event) => props.onNoteTitleInputChange(event.target.value)}
+              />
+            </label>
+            <label>
+              Note
+              <textarea
+                id="noteMarkdownInput"
+                rows={7}
+                placeholder="What matters here? What would you check next?"
+                value={props.noteMarkdownInput}
+                onChange={(event) => props.onNoteMarkdownInputChange(event.target.value)}
+              />
+            </label>
+            <details className="linked-passages">
+              <summary>
+                Link supporting highlights <span className="count-pill">{linkedIds.length}</span>
+              </summary>
+              {!annotations.length && <p className="muted">Highlight a passage to link it here.</p>}
+              {annotations.map((annotation) => (
+                <label className="check-row" key={annotation.id}>
+                  <input
+                    type="checkbox"
+                    checked={linkedIds.includes(annotation.id)}
+                    onChange={() =>
+                      props.onNoteLinkedIdsInputChange(
+                        (linkedIds.includes(annotation.id)
+                          ? linkedIds.filter((id) => id !== annotation.id)
+                          : [...linkedIds, annotation.id]
+                        ).join(", "),
+                      )
+                    }
+                  />
+                  <span>
+                    Page {annotation.page}: {annotation.quote}
+                  </span>
+                </label>
+              ))}
+              <details className="technical-details">
+                <summary>Annotation identifiers</summary>
+                <label>
+                  Linked Annotation IDs
+                  <input
+                    id="noteLinkedIdsInput"
+                    value={props.noteLinkedIdsInput}
+                    onChange={(event) => props.onNoteLinkedIdsInputChange(event.target.value)}
+                  />
+                </label>
+              </details>
+            </details>
+            <div className="row">
+              <button
+                id="saveNoteBtn"
+                className="primary-btn"
+                onClick={() => void safely(props.onSaveNote)}
+              >
+                Save note
+              </button>
+              <button id="newNoteBtn" className="secondary-btn" onClick={props.onNewNoteDraft}>
+                New note
+              </button>
+              <button
+                id="deleteNoteBtn"
+                className="danger-btn"
+                disabled={!selectedNoteId}
+                onClick={() => void safely(props.onDeleteSelectedNote)}
+              >
+                Delete
+              </button>
+            </div>
+          </fieldset>
           <ul id="notesList" className="list">
-            {sortedNotes.length === 0 && (
-              <li className="muted" style={{ cursor: "default" }}>
-                No notes yet
+            {!notes.length && (
+              <li className="empty-state">
+                <p>Your saved notes will appear here.</p>
               </li>
             )}
-            {sortedNotes.map((note) => (
-              <li
-                key={note.id}
-                className={note.id === selectedNoteId ? "selected" : undefined}
-                onClick={() => onSelectNote(note.id)}
-              >
-                <div style={{ fontWeight: 600, fontSize: "0.84rem" }}>
-                  {note.title || "(untitled note)"}
-                </div>
-                <div className="muted">
-                  {note.markdown.length > 120 ? `${note.markdown.slice(0, 120)}…` : note.markdown}
-                </div>
-                {note.linkedAnnotationIds.length > 0 && (
+            {notes.map((note) => (
+              <li key={note.id} className={note.id === selectedNoteId ? "selected" : undefined}>
+                <button className="ghost-btn text-card" onClick={() => props.onSelectNote(note.id)}>
+                  <strong>{note.title || "Untitled note"}</strong>
+                  <span className="muted">
+                    {note.markdown.length > 160 ? `${note.markdown.slice(0, 160)}…` : note.markdown}
+                  </span>
+                </button>
+                {!!note.linkedAnnotationIds.length && (
                   <div className="pill-list">
-                    {note.linkedAnnotationIds.map((annId) => (
+                    {note.linkedAnnotationIds.map((id) => (
                       <button
-                        key={`${note.id}:${annId}`}
-                        className="pill"
-                        onClick={async (event) => {
-                          event.stopPropagation();
-                          await onJumpToAnnotation(annId);
-                        }}
+                        key={id}
+                        className="ghost-btn passage-button"
+                        onClick={() => void safely(() => props.onJumpToAnnotation(id))}
                       >
-                        {annId.slice(-8)}
+                        Page {annotations.find((a) => a.id === id)?.page ?? "?"} ↗
                       </button>
                     ))}
                   </div>
@@ -306,98 +410,67 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
               </li>
             ))}
           </ul>
-        </div>
-      </details>
-
-      {/* Search results */}
-      <details className="card collapsible" open>
-        <summary>
-          <span className="collapsible-arrow">›</span>
-          <h2 style={{ margin: 0 }}>Search Results</h2>
-          {searchResults.length > 0 && (
-            <span className="pill" style={{ marginLeft: "auto" }}>
-              {searchResults.length}
-            </span>
+        </section>
+        <section
+          id="panel-brief"
+          role="tabpanel"
+          aria-labelledby="tab-brief"
+          tabIndex={0}
+          hidden={tab !== "brief"}
+        >
+          {hosted ? (
+            <WorkflowPanel workflow={workflow} view="brief" onOpenBrief={() => setTab("brief")} />
+          ) : (
+            <div className="empty-state">
+              <h3>Keep a copy of your reading.</h3>
+              <p>
+                Export this paper's annotations and notes below. Project briefs are available when
+                you open the reader through sci.
+              </p>
+            </div>
           )}
-        </summary>
-        <div className="card-body">
-          <ul id="searchResultsList" className="list compact-list">
-            {!searchQuery && (
-              <li className="muted" style={{ cursor: "default" }}>
-                No query
-              </li>
-            )}
-            {searchQuery && searchResults.length === 0 && (
-              <li className="muted" style={{ cursor: "default" }}>
-                No matches
-              </li>
-            )}
-            {searchResults.map((result, index) => (
-              <li
-                key={`${result.page}:${result.matchIndex}:${index}`}
-                className={index === searchCursor ? "selected" : undefined}
-                onClick={async () => onJumpToSearchResult(index)}
+          <details className="export-options">
+            <summary>Export annotations & notes</summary>
+            <p className="muted">A copy of this paper's saved reading material.</p>
+            <div className="row">
+              <button
+                id="exportMarkdownBtn"
+                className="secondary-btn"
+                onClick={props.onExportMarkdown}
               >
-                <span className="ann-page" style={{ fontWeight: 600 }}>{`p.${result.page}`}</span>
-                <div className="muted">{result.snippet}</div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </details>
-
-      {/* Exports */}
-      <details className="card collapsible" open>
-        <summary>
-          <span className="collapsible-arrow">›</span>
-          <h2 style={{ margin: 0 }}>Export</h2>
-        </summary>
-        <div className="card-body">
-          <div className="row">
-            <button id="exportJsonBtn" className="ghost-btn" onClick={() => onExportJson()}>
-              Export JSON
-            </button>
-            <button id="exportMarkdownBtn" className="ghost-btn" onClick={() => onExportMarkdown()}>
-              Export Markdown
-            </button>
-          </div>
-        </div>
-      </details>
-
-      {/* Action Timeline */}
-      <details className="card collapsible" open>
-        <summary>
-          <span className="collapsible-arrow">›</span>
-          <h2 style={{ margin: 0 }}>Action Timeline</h2>
+                Export Markdown
+              </button>
+              <button id="exportJsonBtn" className="secondary-btn" onClick={props.onExportJson}>
+                Export JSON
+              </button>
+            </div>
+          </details>
+        </section>
+        <details className="technical-details activity-details">
+          <summary>Activity & details</summary>
           <button
             id="refreshBtn"
-            className="ghost-btn"
-            style={{ marginLeft: "auto", padding: "2px 8px", fontSize: "0.75rem" }}
-            onClick={async (event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              try {
-                await onRefreshWorkspace();
-              } catch (error) {
-                onError(error, "Failed to refresh workspace data");
-              }
-            }}
+            className="secondary-btn"
+            onClick={() =>
+              void safely(async () => {
+                await props.onRefreshWorkspace();
+                await workflow.refresh();
+              })
+            }
           >
-            Refresh
+            Refresh workspace
           </button>
-        </summary>
-        <div className="card-body">
           <ul id="eventsList" className="list compact-list">
-            {events.map((event) => (
-              <li key={event.id} style={{ cursor: "default" }}>
-                {buildEventLines(event).map((line, lineIndex) => (
-                  <div key={`${event.id}:${lineIndex}`}>{line}</div>
+            {props.events.map((event) => (
+              <li key={event.id}>
+                {buildEventLines(event).map((line, index) => (
+                  <div key={index}>{line}</div>
                 ))}
               </li>
             ))}
           </ul>
-        </div>
-      </details>
+        </details>
+      </div>
     </aside>
   );
 }

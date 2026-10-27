@@ -38,13 +38,20 @@ Future scope:
 
 For a PDF-to-brief experience with managed RKS storage, use Structured Intelligence's
 [PDF-to-brief quick start](https://scientifictooling.org/guides/paper-to-brief/).
-It opens this reader with an **Evidence & brief** panel: select saved highlights or
-notes, inspect the import preview, explicitly import, and download a source-linked
-brief. With sci 0.3.0, **Project papers** switches between papers under a shared
-research question; each tab's evidence actions stay bound to its paper session.
+It opens a reading workspace with **Evidence**, **Notes** and **Brief** tabs.
+Check the highlights or saved notes you want to keep in Evidence, inspect the
+preview, then import. Open Brief to download a source-linked brief and return to
+its supporting passages. **Project papers** switches between papers under a shared
+research question; each browser tab's evidence actions stay bound to its paper session.
 The combined brief retains per-paper source links and evidence coverage.
 Imported observations retain their review status. Standalone APW remains
 usable without the orchestration package.
+
+Drag the sidebar edges, or focus a divider and use the arrow keys, to make more
+room for the paper. **Focus on paper** hides both sidebars. On smaller screens,
+**Papers** and **Workspace** open one drawer at a time; Escape closes the drawer.
+The Notes tab lets you link a thought to readable highlight quotations. Technical
+identifiers, activity logs and exports stay available in expandable sections.
 
 Python 3.12 or newer is required; **Python 3.14 is recommended**.
 The repository default is recorded in `.python-version`.

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
+import { PanelResizer } from "../components/PanelResizer";
 
 import { ControlPanel } from "../components/ControlPanel";
 import { ReaderPanel } from "../components/ReaderPanel";
@@ -19,7 +21,8 @@ import {
   exportJson as exportJsonFile,
   exportMarkdown as exportMarkdownFile,
 } from "../services/exporters";
-import { clamp, errorMessage, nowIso } from "../utils/main-utils";
+import { clamp, errorMessage, fileNameOf, nowIso } from "../utils/main-utils";
+import { useHostedWorkflow } from "./useHostedWorkflow";
 import { applySearchHighlightsToCurrentPage as applySearchHighlightsToCurrentPageInDom } from "../ui/search-highlight";
 import { scrollIntoStageView } from "../ui/scroll-into-stage";
 import { upsertProgress, upsertRecentPaper } from "../services/storage";
@@ -45,6 +48,7 @@ export function App() {
   const { toasts, showToast } = useToastStack();
   const { theme, cycleTheme } = useTheme();
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [panelWidths, setPanelWidths] = useState<{ left?: number; right?: number }>({});
   const sessionRef = useRef<PaperSession | null>(null);
   const {
     annotations,
@@ -240,7 +244,12 @@ export function App() {
     toggleControls,
     toggleWorkspace,
     closePanelsOverDocument,
+    toggleFocus,
   } = usePanelLayout({ hasDocument: session !== null });
+  const workflow = useHostedWorkflow(session?.id ?? null);
+  const paperTitle =
+    workflow.data?.title ||
+    (session ? fileNameOf(session.pdf_uri) : "Your next idea starts with a paper.");
 
   const { selectedAnnotation, selectedNote, sortedAnnotations, sortedNotes } =
     useWorkspaceSelection({
@@ -481,6 +490,12 @@ export function App() {
       <main
         ref={layoutRef}
         className="layout"
+        style={
+          {
+            "--controls-width": panelWidths.left ? `${panelWidths.left}px` : undefined,
+            "--workspace-width": panelWidths.right ? `${panelWidths.right}px` : undefined,
+          } as CSSProperties
+        }
         data-tier={tier}
         data-controls={controlsOpen ? "open" : "closed"}
         data-workspace={workspaceOpen ? "open" : "closed"}
@@ -488,7 +503,19 @@ export function App() {
         {tier === "narrow" && (controlsOpen || workspaceOpen) && (
           <div className="panel-backdrop" role="presentation" onClick={closePanelsOverDocument} />
         )}
+        <PanelResizer
+          side="left"
+          value={panelWidths.left ?? (tier === "wide" ? 236 : 216)}
+          onResize={(value) => setPanelWidths((widths) => ({ ...widths, left: value }))}
+        />
+        <PanelResizer
+          side="right"
+          value={panelWidths.right ?? (tier === "wide" ? 336 : 312)}
+          onResize={(value) => setPanelWidths((widths) => ({ ...widths, right: value }))}
+        />
         <ControlPanel
+          workflow={workflow}
+          onDismiss={toggleControls}
           paperRef={paperRef}
           pdfUri={pdfUri}
           sessionId={session?.id ?? null}
@@ -512,6 +539,9 @@ export function App() {
         />
 
         <ReaderPanel
+          paperTitle={paperTitle}
+          onToggleFocus={toggleFocus}
+          focusMode={!controlsOpen && !workspaceOpen}
           controlsOpen={controlsOpen}
           canToggleControls={session !== null}
           workspaceOpen={workspaceOpen}
@@ -562,6 +592,8 @@ export function App() {
         />
 
         <WorkspacePanel
+          key={session?.id ?? "empty"}
+          workflow={workflow}
           sessionId={session?.id ?? null}
           sortedAnnotations={sortedAnnotations}
           sortedNotes={sortedNotes}

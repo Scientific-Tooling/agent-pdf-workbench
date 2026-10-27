@@ -3,6 +3,9 @@ import type { RefObject } from "react";
 import type { PDFDocumentProxy } from "../types/pdfjs-types";
 
 interface ReaderPanelProps {
+  paperTitle: string;
+  focusMode: boolean;
+  onToggleFocus: () => void;
   pdfDoc: PDFDocumentProxy | null;
   page: number;
   pageJumpInput: string;
@@ -107,6 +110,41 @@ export function ReaderPanel(props: ReaderPanelProps) {
   return (
     <section className="panel reader" aria-label="Document reader">
       <div className="toolbar reader-toolbar" ref={toolbarRef}>
+        <div className="reader-title-row">
+          <div className="reader-title">
+            <span className="eyebrow">Reading</span>
+            <strong title={props.paperTitle}>{props.paperTitle}</strong>
+          </div>
+          <button
+            id="shortcutsBtn"
+            className="ghost-btn icon-btn toolbar-trailing"
+            title="Keyboard shortcuts (?)"
+            aria-label="Keyboard shortcuts"
+            onClick={onShowShortcuts}
+          >
+            ?
+          </button>
+
+          <button
+            id="themeBtn"
+            className="ghost-btn icon-btn"
+            title={themeLabel}
+            aria-label={themeLabel}
+            onClick={onCycleTheme}
+          >
+            ◐
+          </button>
+
+          <button
+            id="focusModeBtn"
+            className="secondary-btn"
+            aria-pressed={props.focusMode}
+            onClick={props.onToggleFocus}
+            disabled={!pdfDoc}
+          >
+            {props.focusMode ? "Show workspace" : "Focus on paper"}
+          </button>
+        </div>
         <button
           id="toggleControlsBtn"
           className="ghost-btn icon-btn"
@@ -122,7 +160,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
           disabled={!canToggleControls}
           onClick={onToggleControls}
         >
-          ☰
+          ☰ <span className="toolbar-button-label">Papers</span>
         </button>
 
         <div className="toolbar-divider" />
@@ -142,7 +180,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
               }
             }}
           >
-            ‹ Prev
+            ‹
           </button>
           <button
             id="nextBtn"
@@ -157,7 +195,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
               }
             }}
           >
-            Next ›
+            ›
           </button>
         </div>
 
@@ -326,26 +364,6 @@ export function ReaderPanel(props: ReaderPanelProps) {
         </div>
 
         <button
-          id="shortcutsBtn"
-          className="ghost-btn icon-btn toolbar-trailing"
-          title="Keyboard shortcuts (?)"
-          aria-label="Keyboard shortcuts"
-          onClick={onShowShortcuts}
-        >
-          ?
-        </button>
-
-        <button
-          id="themeBtn"
-          className="ghost-btn icon-btn"
-          title={themeLabel}
-          aria-label={themeLabel}
-          onClick={onCycleTheme}
-        >
-          ◐
-        </button>
-
-        <button
           id="toggleWorkspaceBtn"
           className="ghost-btn icon-btn"
           title={workspaceOpen ? "Hide workspace panel" : "Show workspace panel"}
@@ -353,12 +371,27 @@ export function ReaderPanel(props: ReaderPanelProps) {
           aria-expanded={workspaceOpen}
           onClick={onToggleWorkspace}
         >
-          ⧉
+          ⧉ <span className="toolbar-button-label">Workspace</span>
         </button>
       </div>
 
       {/* PDF Stage */}
       <div id="pdfStage" ref={pdfStageRef} className="pdf-stage">
+        {!pdfDoc && loadingCount === 0 && (
+          <div className="reader-welcome">
+            <span className="eyebrow">A little space to think</span>
+            <h2>
+              Read closely.
+              <br />
+              Keep what matters.
+            </h2>
+            <p>
+              Open a paper to highlight passages, connect your notes and return to the evidence
+              behind every idea.
+            </p>
+            <span className="welcome-line" aria-hidden="true" />
+          </div>
+        )}
         <div className="pdf-document-container">
           <canvas id="pdfCanvas" ref={pdfCanvasRef} />
           <div
@@ -389,6 +422,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
         >
           <input
             id="quickCommentInput"
+            aria-label="Comment on selected passage"
             placeholder="Quick comment (optional)"
             value={quickCommentInput}
             onChange={(event) => onQuickCommentInputChange(event.target.value)}
@@ -428,6 +462,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
             </button>
             <button
               id="quickDismissBtn"
+              aria-label="Dismiss selection tools"
               className="ghost-btn"
               onClick={() => onHideQuickAnnotator()}
             >

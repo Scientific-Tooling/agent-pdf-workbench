@@ -33,6 +33,10 @@ apw-viewer-server \
 - The server always binds to `127.0.0.1` by default.
 - Use `APW_LOG_LEVEL=DEBUG` for verbose output during troubleshooting.
 
+Stop a foreground viewer with Ctrl+C. On Unix, SIGTERM also shuts the viewer down
+and closes its HTTP server; shutdown is scheduled off the serving thread so it
+cannot wait on itself. Stop other APW writers before copying a database backup.
+
 ### Foreground (development)
 
 ```bash

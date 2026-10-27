@@ -37,8 +37,9 @@ Future scope:
 ## Quick start (one command)
 
 For reading an RKS paper and returning selected evidence to RKS, follow the
-[Windows/PowerShell walkthrough](https://scientifictooling.org/guides/rks-apw-windows/).
-It covers source installation through a brief with links to the original passage.
+[Windows/PowerShell walkthrough](https://scientifictooling.org/guides/rks-apw-windows/)
+or the [Linux/macOS walkthrough](https://scientifictooling.org/guides/rks-apw-linux-macos/).
+Both cover source installation through a brief with links to the original passage.
 
 ```bash
 bash bootstrap.sh

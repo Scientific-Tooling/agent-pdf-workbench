@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
@@ -994,10 +995,9 @@ def main() -> int:
     )
 
     def _shutdown(signum: int, frame: object) -> None:
-        # Schedule shutdown from the signal handler; server.shutdown() blocks
-        # until serve_forever() exits so we run it in a thread-safe way by
-        # just calling it directly (ThreadingHTTPServer handles it correctly).
-        server.shutdown()
+        # shutdown() waits for serve_forever() to finish. Signal handlers run on
+        # the serving thread, so waiting there would deadlock on Unix SIGTERM.
+        Thread(target=server.shutdown, name="apw-shutdown", daemon=True).start()
 
     signal.signal(signal.SIGTERM, _shutdown)
 

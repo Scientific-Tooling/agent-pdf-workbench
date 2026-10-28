@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { PanelResizer } from "../components/PanelResizer";
+import { AppHeader } from "../components/AppHeader";
+import { paperByline } from "./paper-byline";
 
 import { ControlPanel } from "../components/ControlPanel";
 import { ReaderPanel } from "../components/ReaderPanel";
@@ -48,6 +50,8 @@ export function App() {
   const { toasts, showToast } = useToastStack();
   const { theme, cycleTheme } = useTheme();
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [workspaceTab, setWorkspaceTab] = useState("evidence");
   const [panelWidths, setPanelWidths] = useState<{ left?: number; right?: number }>({});
   const sessionRef = useRef<PaperSession | null>(null);
   const {
@@ -80,6 +84,24 @@ export function App() {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const layoutRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (searchOpen) {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    }
+  }, [searchOpen]);
+
+  function focusDocumentSearch(): void {
+    setSearchOpen(true);
+    searchInputRef.current?.focus();
+    searchInputRef.current?.select();
+  }
+
+  function closeDocumentSearch(): void {
+    clearSearch();
+    setSearchOpen(false);
+    document.getElementById("findInDocumentBtn")?.focus();
+  }
 
   // The reader owns the document, page rendering, caches, zoom and outline;
   // App keeps session, annotation, note and export orchestration.
@@ -142,7 +164,9 @@ export function App() {
 
   // Subscribe once and dispatch through a ref, so the listener is not swapped
   // on every render.
-  const stageWheelRef = useSyncedRef(handleStageWheel);
+  const stageWheelRef = useSyncedRef((event: WheelEvent) => {
+    if (!switching) handleStageWheel(event);
+  });
   const refitToStageRef = useSyncedRef(refitToStage);
 
   useEffect(() => {
@@ -199,6 +223,8 @@ export function App() {
 
   const {
     session,
+    switching,
+    switchSession,
     paperRef,
     setPaperRef,
     pdfUri,
@@ -232,6 +258,11 @@ export function App() {
     resetViewer,
     clearSearch,
     clearWorkspaceData,
+    prepareForPaper: () => {
+      clearInputs();
+      hideQuickAnnotator();
+      window.getSelection()?.removeAllRanges();
+    },
     setStatus,
     showToast,
     onError: reportError,
@@ -247,8 +278,9 @@ export function App() {
     toggleFocus,
   } = usePanelLayout({ hasDocument: session !== null });
   const workflow = useHostedWorkflow(session?.id ?? null);
+  const navigation = workflow.navigation;
   const paperTitle =
-    workflow.data?.title ||
+    navigation?.title ||
     (session ? fileNameOf(session.pdf_uri) : "Your next idea starts with a paper.");
 
   const { selectedAnnotation, selectedNote, sortedAnnotations, sortedNotes } =
@@ -330,18 +362,25 @@ export function App() {
   function resetViewer(): void {
     resetReader();
     clearSearch();
+    setSearchOpen(false);
     clearWorkspaceData();
     clearInputs();
     hideQuickAnnotator();
   }
 
-  function persistReadingProgress(nextPage: number, nextZoom: number, openDoc: OpenDocument): void {
+  function persistReadingProgress(
+    nextPage: number,
+    nextZoom: number,
+    openDoc: OpenDocument,
+    zoomMode: "fit" | "manual",
+  ): void {
     const progress = {
       paperRef: openDoc.paperRef,
       pdfUri: openDoc.pdfUri,
       sessionId: openDoc.sessionId,
       lastPage: nextPage,
       zoom: nextZoom,
+      zoomMode,
       updatedAt: nowIso(),
     };
     upsertProgress(progress);
@@ -443,10 +482,14 @@ export function App() {
   useGlobalWorkspaceShortcuts({
     quickAnnotatorRef,
     textLayerRef,
-    searchInputRef,
+    onFocusSearch: focusDocumentSearch,
     onHideQuickAnnotator: hideQuickAnnotator,
-    onGoNextPage: goNextPage,
-    onGoPrevPage: goPrevPage,
+    onGoNextPage: async () => {
+      if (!switching) await goNextPage();
+    },
+    onGoPrevPage: async () => {
+      if (!switching) await goPrevPage();
+    },
     onToggleShortcuts: () => setShortcutsOpen((open) => !open),
   });
 
@@ -500,17 +543,22 @@ export function App() {
         data-controls={controlsOpen ? "open" : "closed"}
         data-workspace={workspaceOpen ? "open" : "closed"}
       >
+        <AppHeader
+          themeLabel={THEME_LABELS[theme]}
+          onCycleTheme={cycleTheme}
+          onShowShortcuts={() => setShortcutsOpen(true)}
+        />
         {tier === "narrow" && (controlsOpen || workspaceOpen) && (
           <div className="panel-backdrop" role="presentation" onClick={closePanelsOverDocument} />
         )}
         <PanelResizer
           side="left"
-          value={panelWidths.left ?? (tier === "wide" ? 236 : 216)}
+          value={panelWidths.left ?? (tier === "wide" ? 208 : 196)}
           onResize={(value) => setPanelWidths((widths) => ({ ...widths, left: value }))}
         />
         <PanelResizer
           side="right"
-          value={panelWidths.right ?? (tier === "wide" ? 336 : 312)}
+          value={panelWidths.right ?? (tier === "wide" ? 300 : 272)}
           onResize={(value) => setPanelWidths((widths) => ({ ...widths, right: value }))}
         />
         <ControlPanel
@@ -526,6 +574,7 @@ export function App() {
           onPdfUriChange={setPdfUri}
           onOpenPaper={openPaper}
           onCloseSession={closeSession}
+          onSwitchPaper={switchSession}
           onRefreshRecent={refreshRecentPapers}
           onLoadRecent={async (recent) => {
             await openPaperWithInputs(recent.paperRef, recent.pdfUri, {
@@ -540,6 +589,15 @@ export function App() {
 
         <ReaderPanel
           paperTitle={paperTitle}
+          paperByline={paperByline(navigation?.bibliography)}
+          projectTitles={navigation?.papers?.map((paper) => ({
+            title: paper.title,
+            byline: paperByline(paper.bibliography),
+          }))}
+          switching={switching}
+          searchOpen={searchOpen}
+          onOpenSearch={focusDocumentSearch}
+          onCloseSearch={closeDocumentSearch}
           onToggleFocus={toggleFocus}
           focusMode={!controlsOpen && !workspaceOpen}
           controlsOpen={controlsOpen}
@@ -547,9 +605,6 @@ export function App() {
           workspaceOpen={workspaceOpen}
           onToggleControls={toggleControls}
           onToggleWorkspace={toggleWorkspace}
-          themeLabel={THEME_LABELS[theme]}
-          onCycleTheme={cycleTheme}
-          onShowShortcuts={() => setShortcutsOpen(true)}
           pdfDoc={pdfDoc}
           page={page}
           pageJumpInput={pageJumpInput}
@@ -592,7 +647,9 @@ export function App() {
         />
 
         <WorkspacePanel
-          key={session?.id ?? "empty"}
+          activeTab={workspaceTab}
+          onTabChange={setWorkspaceTab}
+          switching={switching}
           workflow={workflow}
           sessionId={session?.id ?? null}
           sortedAnnotations={sortedAnnotations}

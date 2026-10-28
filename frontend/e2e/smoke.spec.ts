@@ -9,6 +9,7 @@ test("app shell renders core controls", async ({ page }) => {
   await expect(page.locator("#closePaperBtn")).toHaveCount(0);
   await expect(page.locator("#sessionInfo")).toHaveText("—");
   await expect(page.locator("#statusText")).toBeVisible();
-  await expect(page.locator("#searchInput")).toBeVisible();
+  await expect(page.locator("#searchInput")).toHaveCount(0);
+  await expect(page.locator("#findInDocumentBtn")).toBeDisabled();
   await expect(page.locator("#fitWidthBtn")).toBeVisible();
 });

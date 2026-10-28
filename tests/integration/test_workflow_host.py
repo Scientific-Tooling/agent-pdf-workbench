@@ -27,6 +27,10 @@ class HostedWorkflowTest(unittest.TestCase):
                 if params.get("session_id") != "test":
                     raise ValueError("Foreign session")
                 return {"comparisons": []}
+            def discovery(self, params):
+                if params.get("session_id") != "test":
+                    raise ValueError("Foreign session")
+                return {"discoveries": []}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             server = create_viewer_server(root / "events.db", root, workflow=Host())
@@ -61,6 +65,11 @@ class HostedWorkflowTest(unittest.TestCase):
                 for url, headers in (("?session_id=foreign", {}), ("?session_id=test", {"Origin": "https://foreign.example"})):
                     with self.assertRaises(HTTPError):
                         opener.open(Request(base + "/api/workflow/comparisons" + url, headers=headers))
+                with opener.open(base + "/api/workflow/discovery?session_id=test") as response:
+                    self.assertEqual(json.load(response), {"discoveries": []})
+                for url, headers in (("?session_id=foreign", {}), ("?session_id=test", {"Origin": "https://foreign.example"})):
+                    with self.assertRaises(HTTPError):
+                        opener.open(Request(base + "/api/workflow/discovery" + url, headers=headers))
             finally:
                 server.shutdown()
                 thread.join(timeout=5)

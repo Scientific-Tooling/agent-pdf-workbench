@@ -70,7 +70,9 @@ async function stageFit(page: Page) {
     const computedStyle = window.getComputedStyle(stage);
     const paddingLeft = Number.parseFloat(computedStyle.paddingLeft) || 0;
     const paddingRight = Number.parseFloat(computedStyle.paddingRight) || 0;
-    const stageContentLeft = stageRect.left + paddingLeft;
+    // The reader reserves symmetric scrollbar gutters, including on short pages.
+    const gutter = (stageRect.width - stage.clientWidth) / 2;
+    const stageContentLeft = stageRect.left + gutter + paddingLeft;
     const stageContentWidth = stage.clientWidth - paddingLeft - paddingRight;
     const stageContentRight = stageContentLeft + stageContentWidth;
     return {
@@ -86,7 +88,7 @@ async function stageFit(page: Page) {
 }
 
 // The document is the point of the app: panels give way to it, never the reverse.
-for (const width of [1512, 1280, 1024, 768]) {
+for (const width of [1512, 1280, 1024, 768, 390, 320]) {
   test(`the page fits its column at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await openPaper(page, `p_e2e_fit_${width}`);
@@ -107,6 +109,7 @@ for (const width of [1512, 1280, 1024, 768]) {
 
     // "Visible" is not enough for a text field: it was being flex-squeezed to a
     // sliver while still passing a visibility check.
+    await page.locator("#findInDocumentBtn").click();
     const searchWidth = await page
       .locator("#searchInput")
       .evaluate((el) => el.getBoundingClientRect().width);
@@ -198,8 +201,8 @@ test("below the narrow breakpoint panels open over the document, not beside it",
         }
         const toolbarBottom = toolbar.getBoundingClientRect().bottom;
         return (
-          panel.getBoundingClientRect().top >= toolbarBottom - 1 &&
-          backdrop.getBoundingClientRect().top >= toolbarBottom - 1
+          Math.abs(panel.getBoundingClientRect().top - toolbarBottom) <= 1 &&
+          Math.abs(backdrop.getBoundingClientRect().top - toolbarBottom) <= 1
         );
       }),
     )
@@ -227,6 +230,9 @@ test("keyboard shortcuts reach the search field", async ({ page }) => {
   await page.locator("#pageJumpInput").click();
   await page.keyboard.press("Control+f");
   await expect(page.locator("#searchInput")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#searchInput")).toHaveCount(0);
+  await expect(page.locator("#findInDocumentBtn")).toBeFocused();
 });
 
 test("opening a paper never folds a panel out from under the reader", async ({ page }) => {
@@ -269,8 +275,9 @@ test("the sidebar reports the paper, not the plumbing", async ({ page }) => {
   // A document with no outline costs no card.
   await expect(page.locator("#outlineList")).toHaveCount(0);
 
-  // Section headers report what they hold.
-  await expect(page.locator(".tab-count").first()).toHaveText("0");
+  // Empty tabs do not repeat zero counts; the empty state explains the next action.
+  await expect(page.locator(".tab-count")).toHaveCount(0);
+  await expect(page.getByText("Save a useful passage", { exact: true })).toBeVisible();
 });
 
 test("workspace tabs support keyboard navigation and preserve a note draft", async ({ page }) => {
@@ -308,11 +315,11 @@ test("focus mode and keyboard or pointer resizing give space back to the paper",
   await expect.poll(width).toBe(initial + 40);
   await expect.poll(async () => (await stageFit(page))!.documentFitsContent).toBe(true);
   const before = (await stageFit(page))!.canvasWidth;
-  await page.getByRole("button", { name: "Focus on paper", exact: true }).click();
+  await page.getByRole("button", { name: "Focus", exact: true }).click();
   await expect(page.locator(".panel.controls")).toBeHidden();
   await expect(page.locator(".panel.workspace")).toBeHidden();
   await expect.poll(async () => (await stageFit(page))!.canvasWidth).toBeGreaterThan(before);
-  await page.getByRole("button", { name: "Show workspace", exact: true }).click();
+  await page.getByRole("button", { name: "Exit focus", exact: true }).click();
   await expect(page.locator(".panel.controls")).toBeVisible();
   await expect(page.locator(".panel.workspace")).toBeVisible();
 });

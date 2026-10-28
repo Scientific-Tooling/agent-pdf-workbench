@@ -88,7 +88,6 @@ export function EvidenceSearch({
 
   return (
     <section className="evidence-search" aria-label="Find project evidence">
-      <h3>Find project evidence</h3>
       <p className="muted">Search imported quotations and commentary across your papers.</p>
       <form
         onSubmit={(event) => {
@@ -109,7 +108,10 @@ export function EvidenceSearch({
             }}
           />
         </label>
-        <div className="evidence-search-filters">
+        <details className="evidence-search-filters">
+          <summary>
+            Filters{paper || review !== "all" || mode !== "lexical" ? " · active" : ""}
+          </summary>
           <label>
             <span id={`${labelId}-paper`}>Paper</span>
             <select
@@ -157,7 +159,7 @@ export function EvidenceSearch({
               <option value="phrase">Exact phrase</option>
             </select>
           </label>
-        </div>
+        </details>
         <button className="secondary-btn full-width" disabled={busy || !query.trim()}>
           {busy ? "Searching…" : "Search evidence"}
         </button>

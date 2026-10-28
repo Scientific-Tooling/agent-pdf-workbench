@@ -106,6 +106,7 @@ test("reader main path: open -> search -> annotate -> note -> export", async ({
   await expect(page.locator("#sessionInfo")).toHaveText(sessionId);
   await expect(page.locator("#textLayer span").first()).toBeVisible();
 
+  await page.locator("#findInDocumentBtn").click();
   await page.locator("#searchInput").fill("attention");
   await page.locator("#searchBtn").click();
   await expect(page.locator("#searchInfo")).not.toContainText("0 matches");
@@ -394,6 +395,7 @@ test("opening another paper clears the previous document's search", async ({ pag
   await page.locator("#openPaperBtn").click();
   await expect(page.locator("#statusText")).toContainText("session ready");
 
+  await page.locator("#findInDocumentBtn").click();
   await page.locator("#searchInput").fill("attention");
   await page.locator("#searchBtn").click();
   await expect(page.locator("#searchInfo")).not.toContainText("0 matches");
@@ -408,6 +410,8 @@ test("opening another paper clears the previous document's search", async ({ pag
 
   // The match counter unmounts entirely once the query is cleared.
   await expect(page.locator("#searchInfo")).toHaveCount(0);
+  await expect(page.locator("#searchInput")).toHaveCount(0);
+  await page.locator("#findInDocumentBtn").click();
   await expect(page.locator("#searchInput")).toHaveValue("");
 });
 
@@ -454,6 +458,7 @@ test("search marks its hits on the page, with the active hit distinguishable", a
 
   // "this" appears on both lines of the fixture, so one hit is active and one
   // is not — which is what makes the two treatments comparable.
+  await page.locator("#findInDocumentBtn").click();
   await page.locator("#searchInput").fill("this");
   await page.locator("#searchBtn").click();
   await expect(page.locator("#searchInfo")).not.toContainText("0 matches");
@@ -535,6 +540,7 @@ test("jumping to a hit below the fold brings it into view", async ({ page }) => 
     .toBeGreaterThan(0);
   await page.evaluate(() => document.querySelector("#pdfStage")?.scrollTo({ top: 0 }));
 
+  await page.locator("#findInDocumentBtn").click();
   await page.locator("#searchInput").fill("notes");
   await page.locator("#searchBtn").click();
   await expect(page.locator("#searchInfo")).not.toContainText("0 matches");

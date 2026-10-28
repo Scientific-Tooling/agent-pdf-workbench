@@ -4,7 +4,7 @@ import type { RefObject } from "react";
 interface UseGlobalWorkspaceShortcutsParams {
   quickAnnotatorRef: RefObject<HTMLDivElement | null>;
   textLayerRef: RefObject<HTMLDivElement | null>;
-  searchInputRef: RefObject<HTMLInputElement | null>;
+  onFocusSearch: () => void;
   onHideQuickAnnotator: () => void;
   onGoNextPage: () => Promise<void>;
   onGoPrevPage: () => Promise<void>;
@@ -15,7 +15,7 @@ export function useGlobalWorkspaceShortcuts(params: UseGlobalWorkspaceShortcutsP
   const {
     quickAnnotatorRef,
     textLayerRef,
-    searchInputRef,
+    onFocusSearch,
     onHideQuickAnnotator,
     onGoNextPage,
     onGoPrevPage,
@@ -37,11 +37,6 @@ export function useGlobalWorkspaceShortcuts(params: UseGlobalWorkspaceShortcutsP
       onHideQuickAnnotator();
     }
 
-    function focusSearch(): void {
-      searchInputRef.current?.focus();
-      searchInputRef.current?.select();
-    }
-
     async function onKeyDown(event: KeyboardEvent): Promise<void> {
       const target = event.target as HTMLElement | null;
       const editable =
@@ -52,7 +47,7 @@ export function useGlobalWorkspaceShortcuts(params: UseGlobalWorkspaceShortcutsP
       // in a reader that is what the shortcut is expected to do.
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
         event.preventDefault();
-        focusSearch();
+        onFocusSearch();
         return;
       }
       if (editable) {
@@ -75,7 +70,7 @@ export function useGlobalWorkspaceShortcuts(params: UseGlobalWorkspaceShortcutsP
       }
       if (event.key === "f" || event.key === "/") {
         event.preventDefault();
-        focusSearch();
+        onFocusSearch();
         return;
       }
       if (event.key === "Escape") {
@@ -96,7 +91,7 @@ export function useGlobalWorkspaceShortcuts(params: UseGlobalWorkspaceShortcutsP
     onHideQuickAnnotator,
     onToggleShortcuts,
     quickAnnotatorRef,
-    searchInputRef,
+    onFocusSearch,
     textLayerRef,
   ]);
 }

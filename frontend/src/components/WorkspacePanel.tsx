@@ -3,10 +3,14 @@ import { buildEventLines } from "../utils/timeline";
 import { WorkflowPanel } from "./WorkflowPanel";
 import { EvidenceSearch } from "./EvidenceSearch";
 import { ComparisonPanel } from "./ComparisonPanel";
+import { ReaderIcon } from "./ReaderIcon";
 import type { HostedWorkflow } from "../app/useHostedWorkflow";
 import type { ActionEvent, Annotation, Note, SearchResult } from "../types/types";
 
 interface WorkspacePanelProps {
+  activeTab?: string;
+  onTabChange?: (tab: string) => void;
+  switching?: boolean;
   sessionId: string | null;
   workflow: HostedWorkflow;
   sortedAnnotations: Annotation[];
@@ -44,7 +48,9 @@ interface WorkspacePanelProps {
 }
 
 export function WorkspacePanel(props: WorkspacePanelProps) {
-  const [tab, setTab] = useState("evidence");
+  const [localTab, setLocalTab] = useState("evidence");
+  const tab = props.activeTab ?? localTab;
+  const setTab = props.onTabChange ?? setLocalTab;
   const {
     workflow,
     sortedAnnotations: annotations,
@@ -55,7 +61,9 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
   const tabs = [
     { id: "evidence", label: "Evidence", count: annotations.length },
     { id: "notes", label: "Notes", count: notes.length },
-    ...(workflow.data?.capabilities?.comparisons ? [{ id: "compare", label: "Compare" }] : []),
+    ...((workflow.navigation ?? workflow.data)?.capabilities?.comparisons
+      ? [{ id: "compare", label: "Compare" }]
+      : []),
     { id: "brief", label: "Brief" },
   ];
   const hosted = workflow.data?.enabled;
@@ -71,11 +79,11 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
     }
   }
   return (
-    <aside className="panel workspace" aria-label="Annotations, notes and export">
-      <header className="workspace-heading">
-        <span className="eyebrow">Your reading workspace</span>
-        <h2>Make the useful parts yours.</h2>
-      </header>
+    <aside
+      className="panel workspace"
+      aria-label="Annotations, notes and export"
+      aria-busy={props.switching}
+    >
       <div className="workspace-tabs" role="tablist" aria-label="Reading tools">
         {tabs.map((item, index) => (
           <button
@@ -106,11 +114,13 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
             }}
           >
             {item.label}
-            {item.count !== undefined && <span className="tab-count">{item.count}</span>}
+            {item.count !== undefined && item.count > 0 && (
+              <span className="tab-count">{item.count}</span>
+            )}
           </button>
         ))}
       </div>
-      <div className="workspace-body">
+      <div className="workspace-body" key={props.sessionId} inert={props.switching}>
         {props.searchQuery && (
           <details className="search-results" open>
             <summary>
@@ -144,30 +154,27 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
           tabIndex={0}
           hidden={tab !== "evidence"}
         >
-          {workflow.sessionId && workflow.data?.capabilities?.evidence_search && (
-            <EvidenceSearch
-              key={`${workflow.sessionId}:${workflow.data.preview?.id}:${workflow.data.preview?.applied}`}
-              sessionId={workflow.sessionId}
-              papers={workflow.data.papers ?? []}
-            />
+          {!!annotations.length && (
+            <div className="section-intro">
+              <h3>Saved highlights</h3>
+              <p className="muted">
+                {hosted
+                  ? "Choose the passages you want to keep as evidence."
+                  : " Your highlights stay with this paper."}
+              </p>
+            </div>
           )}
-          <div className="section-intro">
-            <h3>Saved highlights</h3>
-            <p className="muted">
-              Select text in the paper to highlight it and add a thought.
-              {hosted
-                ? " Choose the passages you want to keep as evidence."
-                : " Your highlights stay with this paper."}
-            </p>
-          </div>
           <ul id="annotationList" className="list annotation-list">
             {!annotations.length && (
-              <li className="empty-state">
+              <li className="empty-state evidence-empty">
                 <span className="empty-mark" aria-hidden="true">
-                  “
+                  <ReaderIcon name="quote" />
                 </span>
-                <h3>A useful passage starts here.</h3>
-                <p>No annotations yet. Select a sentence in the PDF, then choose Highlight.</p>
+                <h3>Save a useful passage</h3>
+                <p>
+                  Select text in the paper, then choose Highlight. Your saved passages will appear
+                  here.
+                </p>
               </li>
             )}
             {annotations.map((annotation) => (
@@ -292,7 +299,23 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
               ))}
             </details>
           )}
-          <WorkflowPanel workflow={workflow} view="evidence" onOpenBrief={() => setTab("brief")} />
+          {(annotations.length > 0 || notes.length > 0 || workflow.preview || workflow.error) && (
+            <WorkflowPanel
+              workflow={workflow}
+              view="evidence"
+              onOpenBrief={() => setTab("brief")}
+            />
+          )}
+          {workflow.sessionId && workflow.data?.capabilities?.evidence_search && (
+            <details className="project-evidence-search">
+              <summary>Find project evidence</summary>
+              <EvidenceSearch
+                key={`${workflow.sessionId}:${workflow.data.preview?.id}:${workflow.data.preview?.applied}`}
+                sessionId={workflow.sessionId}
+                papers={workflow.data.papers ?? []}
+              />
+            </details>
+          )}
           {workflow.error && !hosted && (
             <p className="notice error" role="alert">
               {workflow.message}

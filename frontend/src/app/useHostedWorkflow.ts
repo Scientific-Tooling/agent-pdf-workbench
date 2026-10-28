@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { apiGet, apiPost } from "../services/api";
+import type { Bibliography } from "./paper-byline";
 
 export interface EvidenceItem {
   kind: "annotation" | "note";
@@ -17,12 +18,14 @@ export interface Preview {
 }
 export interface WorkflowStatus {
   enabled: boolean;
-  capabilities?: { evidence_search?: boolean; comparisons?: boolean };
+  capabilities?: { evidence_search?: boolean; comparisons?: boolean; discovery?: boolean };
   question?: string;
   title?: string;
+  bibliography?: Bibliography | null;
   papers?: {
     key: string;
     title: string;
+    bibliography?: Bibliography | null;
     phase: string;
     session_id: string | null;
     viewer_url: string | null;
@@ -35,6 +38,12 @@ export interface WorkflowStatus {
     paper_count?: number;
   } | null;
 }
+// Only project navigation may survive a paper change. Evidence, selections and
+// import plans must always come from the new session's own response.
+export type WorkflowNavigation = Pick<
+  WorkflowStatus,
+  "enabled" | "capabilities" | "question" | "papers" | "title" | "bibliography"
+>;
 interface State {
   sessionId: string | null;
   data: WorkflowStatus | null;
@@ -70,6 +79,17 @@ export function useHostedWorkflow(sessionId: string | null) {
   const generation = useRef<symbol | null>(null);
   const working = useRef(false);
   const current = state.sessionId === sessionId ? state : empty(sessionId);
+  const project = useRef<WorkflowNavigation | undefined>(undefined);
+  if (current.data) {
+    const { enabled, capabilities, question, papers, title, bibliography } = current.data;
+    project.current = { enabled, capabilities, question, papers, title, bibliography };
+  }
+  const paper = project.current?.papers?.find((item) => item.session_id === sessionId);
+  const navigation = current.data
+    ? project.current
+    : paper
+      ? { ...project.current!, title: paper.title, bibliography: paper.bibliography }
+      : undefined;
 
   useEffect(() => {
     const epoch = Symbol();
@@ -184,6 +204,8 @@ export function useHostedWorkflow(sessionId: string | null) {
       operationDetails: null,
     });
   }
-  return { ...current, refresh, run, toggle };
+  return { ...current, navigation, refresh, run, toggle };
 }
-export type HostedWorkflow = ReturnType<typeof useHostedWorkflow>;
+export type HostedWorkflow = Omit<ReturnType<typeof useHostedWorkflow>, "navigation"> & {
+  navigation?: WorkflowNavigation;
+};

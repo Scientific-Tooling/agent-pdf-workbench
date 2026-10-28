@@ -137,6 +137,7 @@ export interface ReadingProgress {
   sessionId: string;
   lastPage: number;
   zoom: number;
+  zoomMode?: "fit" | "manual";
   updatedAt: string;
 }
 

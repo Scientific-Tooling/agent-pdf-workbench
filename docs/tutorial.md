@@ -155,7 +155,7 @@ These actions appear in the timeline and are persisted to SQLite.
 
 1. Open paper session from left panel (`Paper Ref` + `PDF URI` + `Open Paper`).
 2. Use reading controls: page jump, zoom, fit-width, and outline navigation.
-3. Use search bar for full-text search and jump through hits.
+3. Open **Find in document** from the toolbar for full-text search; Escape clears and closes it.
 4. Select text on PDF text layer, then click `Highlight` or `Underline`.
 5. Add annotation comments/tags, and manage annotations from the right panel.
 6. Annotation rendering is anchor-first (`quote + start/end + prefix/suffix`) with rect fallback.
@@ -167,7 +167,8 @@ Keyboard shortcuts:
 
 - `j`: next page
 - `k`: previous page
-- `f`: focus search input
+- `f`, `/`, Ctrl+F or Cmd+F: open and focus document search
+- `?`: keyboard help (also available under **Reader settings**, alongside theme controls)
 
 ## 5. HTTP API Quick Check
 

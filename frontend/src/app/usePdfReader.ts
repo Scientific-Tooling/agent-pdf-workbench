@@ -27,6 +27,7 @@ export interface OpenDocument {
   pdfUri: string;
   sessionId: string;
   expectedSha256?: string;
+  preserveView?: boolean;
 }
 
 export interface PdfReaderCallbacks {
@@ -36,7 +37,12 @@ export interface PdfReaderCallbacks {
    * The document identity comes from the render, not from ambient state, so
    * progress can never be filed under whatever paper was open previously.
    */
-  onProgress: (page: number, zoom: number, document: OpenDocument) => void;
+  onProgress: (
+    page: number,
+    zoom: number,
+    document: OpenDocument,
+    zoomMode: "fit" | "manual",
+  ) => void;
   /** Record a page_change action event. */
   onPageChange: (page: number, totalPages: number, sessionId: string) => Promise<void>;
   /** Record a zoom_change action event. */
@@ -104,7 +110,7 @@ export function usePdfReader(params: PdfReaderParams) {
     zoomRef.current = nextZoom;
   }
 
-  function clearViewerDom(): void {
+  function clearViewerDom(keepCanvas = false): void {
     const textLayer = textLayerRef.current;
     const annotationLayer = annotationLayerRef.current;
     const canvas = pdfCanvasRef.current;
@@ -114,7 +120,7 @@ export function usePdfReader(params: PdfReaderParams) {
     if (annotationLayer) {
       annotationLayer.innerHTML = "";
     }
-    if (canvas) {
+    if (canvas && !keepCanvas) {
       canvas.width = 0;
       canvas.height = 0;
       canvas.style.width = "0px";
@@ -137,7 +143,7 @@ export function usePdfReader(params: PdfReaderParams) {
   }
 
   /** Retire every async operation that belongs to the document being replaced. */
-  function invalidateDocument(): number {
+  function invalidateDocument(keepCanvas = false): number {
     const generation = documentGenerationRef.current + 1;
     documentGenerationRef.current = generation;
     renderTokenRef.current += 1;
@@ -157,7 +163,7 @@ export function usePdfReader(params: PdfReaderParams) {
 
     pageTextCacheRef.current.clear();
     clearPageCache();
-    clearViewerDom();
+    clearViewerDom(keepCanvas);
     return generation;
   }
 
@@ -235,15 +241,19 @@ export function usePdfReader(params: PdfReaderParams) {
 
     let viewport!: PageViewport;
     let textContent!: TextContent;
+    let pageImage!: CanvasImageSource;
 
     if (cacheHit) {
       cached!.lastUsedAt = Date.now();
       viewport = cached!.viewport;
       textContent = cached!.textContent;
-      updateCanvasAndLayersSize(canvas, textLayer, annotationLayer, viewport);
-      const context = canvas.getContext("2d");
+      const buffer = document.createElement("canvas");
+      buffer.width = viewport.width;
+      buffer.height = viewport.height;
+      const context = buffer.getContext("2d");
       if (!context) throw new Error("Cannot initialize 2d canvas context");
       context.drawImage(cached!.bitmap, 0, 0);
+      pageImage = buffer;
     } else {
       await withStageLoading("Rendering page...", async () => {
         const pdfPage = await activeDoc.getPage(pageNumber);
@@ -251,10 +261,14 @@ export function usePdfReader(params: PdfReaderParams) {
           return;
         }
         const vp = pdfPage.getViewport({ scale: activeZoom });
-        updateCanvasAndLayersSize(canvas, textLayer, annotationLayer, vp);
-        const context = canvas.getContext("2d");
+        // Render off screen so the visible page is never resized or cleared
+        // before its replacement is complete.
+        const buffer = document.createElement("canvas");
+        buffer.width = vp.width;
+        buffer.height = vp.height;
+        const context = buffer.getContext("2d");
         if (!context) throw new Error("Cannot initialize 2d canvas context");
-        const renderTask = pdfPage.render({ canvas, canvasContext: context, viewport: vp });
+        const renderTask = pdfPage.render({ canvas: buffer, canvasContext: context, viewport: vp });
         activeRenderTaskRef.current = renderTask;
         try {
           await renderTask.promise;
@@ -275,7 +289,7 @@ export function usePdfReader(params: PdfReaderParams) {
         if (isStale()) {
           return;
         }
-        const bitmap = await createImageBitmap(canvas);
+        const bitmap = await createImageBitmap(buffer);
         if (isStale()) {
           disposeBitmap(bitmap);
           return;
@@ -283,6 +297,7 @@ export function usePdfReader(params: PdfReaderParams) {
         setPageCacheEntry(pageNumber, { bitmap, textContent: tc, viewport: vp, zoom: activeZoom });
         viewport = vp;
         textContent = tc;
+        pageImage = buffer;
       });
     }
 
@@ -290,10 +305,15 @@ export function usePdfReader(params: PdfReaderParams) {
       return;
     }
 
-    textLayer.innerHTML = "";
+    const nextTextLayer = document.createElement("div");
+    nextTextLayer.className = "text-layer";
+    nextTextLayer.style.setProperty(
+      "--total-scale-factor",
+      String(viewport.scale * viewport.userUnit),
+    );
     const pdfTextLayer = new pdfjsLib.TextLayer({
       textContentSource: textContent,
-      container: textLayer,
+      container: nextTextLayer,
       viewport,
     });
     activeTextLayerRef.current = pdfTextLayer;
@@ -327,13 +347,28 @@ export function usePdfReader(params: PdfReaderParams) {
     }
     pageTextCacheRef.current.set(pageNumber, readTextFromPdfItems(textContent.items));
 
+    // Canvas, text and annotation geometry commit together, after the last
+    // ownership check. A superseded render can never paint into a newer paper.
+    textLayer.style.cssText = nextTextLayer.style.cssText;
+    updateCanvasAndLayersSize(canvas, textLayer, annotationLayer, viewport);
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Cannot initialize 2d canvas context");
+    context.drawImage(pageImage, 0, 0);
+    textLayer.replaceChildren(...nextTextLayer.childNodes);
+    annotationLayer.replaceChildren();
+
     setPage(pageNumber);
     pageRef.current = pageNumber;
     setPageJumpInput(String(pageNumber));
 
     const openDoc = openDocumentRef.current;
     if (openDoc && !isStale()) {
-      callbacksRef.current.onProgress(pageNumber, activeZoom, openDoc);
+      callbacksRef.current.onProgress(
+        pageNumber,
+        activeZoom,
+        openDoc,
+        followsWidthRef.current ? "fit" : "manual",
+      );
       if (emitPageChange) {
         await callbacksRef.current.onPageChange(pageNumber, activeDoc.numPages, openDoc.sessionId);
       }
@@ -458,7 +493,8 @@ export function usePdfReader(params: PdfReaderParams) {
   async function openDocument(
     params: OpenDocument & { page: number; zoom?: number },
   ): Promise<void> {
-    const generation = invalidateDocument();
+    const preserveView = params.preserveView && openDocumentRef.current !== null;
+    const generation = invalidateDocument(!!preserveView);
     openDocumentRef.current = {
       paperRef: params.paperRef,
       pdfUri: params.pdfUri,
@@ -466,11 +502,13 @@ export function usePdfReader(params: PdfReaderParams) {
     };
     // A saved zoom is the reader's own choice and wins; without one the page
     // fits the width it actually has.
-    followsWidthRef.current = params.zoom === undefined;
-    setZoomLevel(params.zoom ?? DEFAULT_ZOOM);
-    setPage(1);
-    pageRef.current = 1;
-    setPageJumpInput("");
+    if (!preserveView) {
+      followsWidthRef.current = params.zoom === undefined;
+      setZoomLevel(params.zoom ?? DEFAULT_ZOOM);
+    }
+    setPage(params.page);
+    pageRef.current = params.page;
+    setPageJumpInput(String(params.page));
     setOutline([]);
     await loadPdf(params.pdfUri, params.page, generation, params.expectedSha256);
   }
@@ -517,10 +555,12 @@ export function usePdfReader(params: PdfReaderParams) {
         pdfDocRef.current = doc;
         pageTextCacheRef.current.clear();
         clearPageCache();
-        await buildOutline(doc, generation);
+        // Outline resolution is independent of showing the first page.
+        void buildOutline(doc, generation).catch(() => {});
         if (!isCurrentDocument(generation, doc)) {
           return;
         }
+        pageRef.current = clamp(preferredPage, 1, doc.numPages);
         if (followsWidthRef.current) {
           const fitted = await widthFittingScale(generation, doc);
           if (!isCurrentDocument(generation, doc)) {
@@ -543,6 +583,10 @@ export function usePdfReader(params: PdfReaderParams) {
         }
         const normalizedPage = clamp(preferredPage, 1, doc.numPages);
         await renderPage(normalizedPage, true, doc, generation);
+        if (isCurrentDocument(generation, doc) && pdfStageRef.current) {
+          pdfStageRef.current.scrollTop = 0;
+          pdfStageRef.current.scrollLeft = 0;
+        }
       } catch (error) {
         if (loadingTask === null) {
           throw error;
@@ -598,8 +642,19 @@ export function usePdfReader(params: PdfReaderParams) {
     if (options.manual !== false) {
       followsWidthRef.current = false;
     }
-    const normalized = clamp(nextZoom, MIN_ZOOM, MAX_ZOOM);
+    // Fitting a small viewport or a wide PDF must be allowed below the manual
+    // zoom floor. Zooming out from that fit must never make the page larger.
+    const minimum = options.manual === false ? 0 : Math.min(MIN_ZOOM, zoomRef.current);
+    const normalized = clamp(nextZoom, minimum, MAX_ZOOM);
     if (Math.abs(normalized - zoomRef.current) < 0.001) {
+      const openDoc = openDocumentRef.current;
+      if (openDoc)
+        callbacksRef.current.onProgress(
+          pageRef.current,
+          zoomRef.current,
+          openDoc,
+          followsWidthRef.current ? "fit" : "manual",
+        );
       return;
     }
     clearPageCache();
@@ -623,6 +678,7 @@ export function usePdfReader(params: PdfReaderParams) {
     if (options.manual === false && !followsWidthRef.current) {
       return;
     }
+    if (options.manual !== false) followsWidthRef.current = true;
     await applyZoom(scale, { manual: false });
     if (!isCurrentDocument(generation, doc)) {
       return;
@@ -630,6 +686,9 @@ export function usePdfReader(params: PdfReaderParams) {
     if (options.manual !== false) {
       // An explicit Fit Width means "keep doing this as the window changes".
       followsWidthRef.current = true;
+      const openDoc = openDocumentRef.current;
+      if (openDoc)
+        callbacksRef.current.onProgress(pageRef.current, zoomRef.current, openDoc, "fit");
     }
   }
 
@@ -654,7 +713,7 @@ export function usePdfReader(params: PdfReaderParams) {
       0,
       stage.clientWidth - paddingLeft - paddingRight - STAGE_GUTTER_PX,
     );
-    return clamp(contentWidth / baseViewport.width, MIN_ZOOM, MAX_ZOOM);
+    return contentWidth > 0 ? Math.min(contentWidth / baseViewport.width, MAX_ZOOM) : null;
   }
 
   /** Refit after the stage resizes, but only while the page is following it. */

@@ -11,7 +11,7 @@ export function PanelResizer({
   onResize: (value: number) => void;
 }) {
   const drag = useRef<{ x: number; width: number } | null>(null);
-  const minimum = side === "left" ? 190 : 280;
+  const minimum = side === "left" ? 180 : 240;
   const maximum = side === "left" ? 310 : 420;
   const direction = side === "left" ? 1 : -1;
   return (

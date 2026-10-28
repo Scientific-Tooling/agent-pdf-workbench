@@ -87,10 +87,10 @@ async function contrastReport(page: Page) {
       recentRef: ".recent-ref",
       recentMeta: ".recent-meta",
       fieldLabel: ".panel.workspace label",
-      countPill: ".count-pill",
+      emptyPrompt: ".evidence-empty p",
       closeButton: "#closePaperBtn",
       fitWidth: "#fitWidthBtn",
-      sectionHeading: ".panel.workspace h2",
+      sectionHeading: ".panel.workspace h3",
       focusButton: "#focusModeBtn",
       selectedTab: ".tab-btn[aria-selected=true]",
       primaryButton: "#saveNoteBtn",
@@ -131,6 +131,7 @@ test("an explicit theme choice overrides the OS and survives a reload", async ({
     page.locator("body").evaluate((el) => getComputedStyle(el).backgroundColor);
   const lightBackground = await appBackground();
 
+  await page.getByLabel("Reader settings", { exact: true }).click();
   // system -> light -> dark
   await page.locator("#themeBtn").click();
   await page.locator("#themeBtn").click();
@@ -146,6 +147,7 @@ test("an explicit theme choice overrides the OS and survives a reload", async ({
 test("icon-only controls carry accessible names", async ({ page }) => {
   await openPaper(page, "p_e2e_a11y_names");
 
+  await page.locator("#findInDocumentBtn").click();
   const iconButtons = [
     "#toggleControlsBtn",
     "#toggleWorkspaceBtn",
@@ -181,6 +183,7 @@ test("the shortcut list is reachable by keyboard and by button", async ({ page }
   await page.locator("#shortcutHelpClose").click();
   await expect(page.locator("#shortcutHelp")).toHaveCount(0);
 
+  await page.getByLabel("Reader settings", { exact: true }).click();
   await page.locator("#shortcutsBtn").click();
   await expect(page.locator("#shortcutHelp")).toBeVisible();
 });

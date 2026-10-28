@@ -1,9 +1,16 @@
 import type { RefObject } from "react";
 
 import type { PDFDocumentProxy } from "../types/pdfjs-types";
+import { ReaderToolbar } from "./ReaderToolbar";
 
-interface ReaderPanelProps {
+export interface ReaderPanelProps {
   paperTitle: string;
+  paperByline?: string;
+  projectTitles?: { title: string; byline: string }[];
+  switching?: boolean;
+  searchOpen: boolean;
+  onOpenSearch: () => void;
+  onCloseSearch: () => void;
   focusMode: boolean;
   onToggleFocus: () => void;
   pdfDoc: PDFDocumentProxy | null;
@@ -38,9 +45,6 @@ interface ReaderPanelProps {
   workspaceOpen: boolean;
   onToggleControls: () => void;
   onToggleWorkspace: () => void;
-  themeLabel: string;
-  onCycleTheme: () => void;
-  onShowShortcuts: () => void;
   onGoPrevPage: () => Promise<void>;
   onGoNextPage: () => Promise<void>;
   onJumpToPageInput: () => Promise<void>;
@@ -59,14 +63,6 @@ interface ReaderPanelProps {
 export function ReaderPanel(props: ReaderPanelProps) {
   const {
     pdfDoc,
-    page,
-    pageJumpInput,
-    zoom,
-    searchInputValue,
-    searchQuery,
-    searchResultsCount,
-    searchCursor,
-    searchInfoText,
     loadingCount,
     stageLoadingLabel,
     quickVisible,
@@ -74,31 +70,12 @@ export function ReaderPanel(props: ReaderPanelProps) {
     quickTop,
     quickCommentInput,
     hasPendingSelection,
-    searchInputRef,
-    toolbarRef,
     pdfStageRef,
     pdfCanvasRef,
     textLayerRef,
     annotationLayerRef,
     quickAnnotatorRef,
-    onPageJumpInputChange,
-    onSearchInputValueChange,
     onQuickCommentInputChange,
-    controlsOpen,
-    canToggleControls,
-    workspaceOpen,
-    onToggleControls,
-    onToggleWorkspace,
-    themeLabel,
-    onCycleTheme,
-    onShowShortcuts,
-    onGoPrevPage,
-    onGoNextPage,
-    onJumpToPageInput,
-    onApplyZoom,
-    onFitWidth,
-    onRunSearch,
-    onJumpToSearchResult,
     onTextLayerCopy,
     onTextLayerMouseUp,
     onQuickHighlight,
@@ -108,369 +85,114 @@ export function ReaderPanel(props: ReaderPanelProps) {
   } = props;
 
   return (
-    <section className="panel reader" aria-label="Document reader">
-      <div className="toolbar reader-toolbar" ref={toolbarRef}>
-        <div className="reader-title-row">
-          <div className="reader-title">
-            <span className="eyebrow">Reading</span>
-            <strong title={props.paperTitle}>{props.paperTitle}</strong>
-          </div>
-          <button
-            id="shortcutsBtn"
-            className="ghost-btn icon-btn toolbar-trailing"
-            title="Keyboard shortcuts (?)"
-            aria-label="Keyboard shortcuts"
-            onClick={onShowShortcuts}
+    <>
+      <ReaderToolbar {...props} />
+      <section className="panel reader" aria-label="Document reader" aria-busy={props.switching}>
+        {/* PDF Stage */}
+        <div id="pdfStage" ref={pdfStageRef} className="pdf-stage">
+          {!pdfDoc && loadingCount === 0 && !props.switching && (
+            <div className="reader-welcome">
+              <span className="eyebrow">A little space to think</span>
+              <h2>
+                Read closely.
+                <br />
+                Keep what matters.
+              </h2>
+              <p>
+                Open a paper to highlight passages, connect your notes and return to the evidence
+                behind every idea.
+              </p>
+              <span className="welcome-line" aria-hidden="true" />
+            </div>
+          )}
+          <div
+            className="pdf-document-container"
+            inert={props.switching}
+            aria-hidden={props.switching}
           >
-            ?
-          </button>
-
-          <button
-            id="themeBtn"
-            className="ghost-btn icon-btn"
-            title={themeLabel}
-            aria-label={themeLabel}
-            onClick={onCycleTheme}
-          >
-            ◐
-          </button>
-
-          <button
-            id="focusModeBtn"
-            className="secondary-btn"
-            aria-pressed={props.focusMode}
-            onClick={props.onToggleFocus}
-            disabled={!pdfDoc}
-          >
-            {props.focusMode ? "Show workspace" : "Focus on paper"}
-          </button>
-        </div>
-        <button
-          id="toggleControlsBtn"
-          className="ghost-btn icon-btn"
-          title={
-            canToggleControls
-              ? controlsOpen
-                ? "Hide session panel"
-                : "Show session panel"
-              : "Open a paper to fold this panel away"
-          }
-          aria-label={controlsOpen ? "Hide session panel" : "Show session panel"}
-          aria-expanded={controlsOpen}
-          disabled={!canToggleControls}
-          onClick={onToggleControls}
-        >
-          ☰ <span className="toolbar-button-label">Papers</span>
-        </button>
-
-        <div className="toolbar-divider" />
-
-        {/* Page navigation */}
-        <div className="row">
-          <button
-            id="prevBtn"
-            className="ghost-btn icon-btn"
-            title="Previous page (j)"
-            aria-label="Previous page"
-            onClick={async () => {
-              try {
-                await onGoPrevPage();
-              } catch (error) {
-                onError(error, "Failed to go to previous page");
-              }
-            }}
-          >
-            ‹
-          </button>
-          <button
-            id="nextBtn"
-            className="ghost-btn icon-btn"
-            title="Next page (k)"
-            aria-label="Next page"
-            onClick={async () => {
-              try {
-                await onGoNextPage();
-              } catch (error) {
-                onError(error, "Failed to go to next page");
-              }
-            }}
-          >
-            ›
-          </button>
-        </div>
-
-        <div className="toolbar-divider" />
-
-        {/* Page jump */}
-        <div className="row">
-          <label className="inline-label">
-            Page
-            <input
-              id="pageJumpInput"
-              type="number"
-              min={1}
-              value={pageJumpInput}
-              onChange={(event) => onPageJumpInputChange(event.target.value)}
-              onKeyDown={async (event) => {
-                if (event.key === "Enter") {
-                  try {
-                    await onJumpToPageInput();
-                  } catch (error) {
-                    onError(error, "Failed to jump page");
-                  }
+            <canvas id="pdfCanvas" ref={pdfCanvasRef} />
+            <div
+              id="textLayer"
+              ref={textLayerRef}
+              className="text-layer"
+              onCopy={async () => {
+                try {
+                  await onTextLayerCopy();
+                } catch (error) {
+                  onError(error, "Failed to record copy action");
                 }
+              }}
+              onMouseUp={() => {
+                onTextLayerMouseUp();
               }}
             />
-          </label>
-          <button
-            id="pageJumpBtn"
-            className="ghost-btn"
-            onClick={async () => {
-              try {
-                await onJumpToPageInput();
-              } catch (error) {
-                onError(error, "Failed to jump page");
-              }
-            }}
-          >
-            Go
-          </button>
-          <span id="pageInfo" className="page-info">
-            {pdfDoc ? `${page} / ${pdfDoc.numPages}` : "— / —"}
-          </span>
-        </div>
-
-        <div className="toolbar-divider" />
-
-        <div className="toolbar-search">
-          <input
-            id="searchInput"
-            ref={searchInputRef}
-            placeholder="Find in document (f)"
-            aria-label="Find in document"
-            value={searchInputValue}
-            onChange={(event) => onSearchInputValueChange(event.target.value)}
-            onKeyDown={async (event) => {
-              if (event.key === "Escape") {
-                onSearchInputValueChange("");
-                await onRunSearch("");
-                return;
-              }
-              if (event.key !== "Enter") {
-                return;
-              }
-              event.preventDefault();
-              const query = searchInputValue.trim();
-              if (!query) {
-                await onRunSearch("");
-                return;
-              }
-              if (searchQuery === query && searchResultsCount > 0) {
-                if (event.shiftKey) {
-                  await onJumpToSearchResult(searchCursor - 1);
-                } else {
-                  await onJumpToSearchResult(searchCursor + 1);
-                }
-                return;
-              }
-              await onRunSearch(query);
-            }}
-          />
-          <button
-            id="searchBtn"
-            className="ghost-btn icon-btn"
-            title="Search"
-            aria-label="Search"
-            onClick={async () => onRunSearch(searchInputValue)}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-          </button>
-          {searchInfoText && (
-            <span id="searchInfo" className="search-info">
-              {searchInfoText}
-            </span>
-          )}
-          <button
-            id="searchPrevBtn"
-            className="ghost-btn icon-btn"
-            title="Previous match (Shift+Enter)"
-            aria-label="Previous match"
-            onClick={async () => onJumpToSearchResult(searchCursor - 1)}
-          >
-            ‹
-          </button>
-          <button
-            id="searchNextBtn"
-            className="ghost-btn icon-btn"
-            title="Next match (Enter)"
-            aria-label="Next match"
-            onClick={async () => onJumpToSearchResult(searchCursor + 1)}
-          >
-            ›
-          </button>
-        </div>
-
-        <div className="toolbar-divider" />
-
-        {/* Zoom */}
-        <div className="row">
-          <button
-            id="zoomOutBtn"
-            className="ghost-btn icon-btn"
-            title="Zoom out"
-            aria-label="Zoom out"
-            onClick={async () => onApplyZoom(zoom - 0.2)}
-          >
-            −
-          </button>
-          <span id="zoomInfo" className="zoom-info">
-            {`${Math.round(zoom * 100)}%`}
-          </span>
-          <button
-            id="zoomInBtn"
-            className="ghost-btn icon-btn"
-            title="Zoom in"
-            aria-label="Zoom in"
-            onClick={async () => onApplyZoom(zoom + 0.2)}
-          >
-            +
-          </button>
-          <button
-            id="fitWidthBtn"
-            className="ghost-btn"
-            onClick={async () => {
-              try {
-                await onFitWidth();
-              } catch (error) {
-                onError(error, "Failed to fit width");
-              }
-            }}
-          >
-            Fit Width
-          </button>
-        </div>
-
-        <button
-          id="toggleWorkspaceBtn"
-          className="ghost-btn icon-btn"
-          title={workspaceOpen ? "Hide workspace panel" : "Show workspace panel"}
-          aria-label={workspaceOpen ? "Hide workspace panel" : "Show workspace panel"}
-          aria-expanded={workspaceOpen}
-          onClick={onToggleWorkspace}
-        >
-          ⧉ <span className="toolbar-button-label">Workspace</span>
-        </button>
-      </div>
-
-      {/* PDF Stage */}
-      <div id="pdfStage" ref={pdfStageRef} className="pdf-stage">
-        {!pdfDoc && loadingCount === 0 && (
-          <div className="reader-welcome">
-            <span className="eyebrow">A little space to think</span>
-            <h2>
-              Read closely.
-              <br />
-              Keep what matters.
-            </h2>
-            <p>
-              Open a paper to highlight passages, connect your notes and return to the evidence
-              behind every idea.
-            </p>
-            <span className="welcome-line" aria-hidden="true" />
+            <div id="annotationLayer" ref={annotationLayerRef} className="annotation-layer" />
           </div>
-        )}
-        <div className="pdf-document-container">
-          <canvas id="pdfCanvas" ref={pdfCanvasRef} />
           <div
-            id="textLayer"
-            ref={textLayerRef}
-            className="text-layer"
-            onCopy={async () => {
-              try {
-                await onTextLayerCopy();
-              } catch (error) {
-                onError(error, "Failed to record copy action");
-              }
-            }}
-            onMouseUp={() => {
-              onTextLayerMouseUp();
-            }}
-          />
-          <div id="annotationLayer" ref={annotationLayerRef} className="annotation-layer" />
-        </div>
-        <div id="stageLoading" className={`stage-loading ${loadingCount > 0 ? "" : "hidden"}`}>
-          {stageLoadingLabel}
+            id="quickAnnotator"
+            ref={quickAnnotatorRef}
+            className={`quick-annotator ${quickVisible ? "" : "hidden"}`}
+            style={{ left: `${quickLeft}px`, top: `${quickTop}px` }}
+          >
+            <input
+              id="quickCommentInput"
+              aria-label="Comment on selected passage"
+              placeholder="Quick comment (optional)"
+              value={quickCommentInput}
+              onChange={(event) => onQuickCommentInputChange(event.target.value)}
+            />
+            <div className="row">
+              <button
+                id="quickHighlightBtn"
+                className="amber-btn"
+                onClick={async () => {
+                  if (!hasPendingSelection) {
+                    return;
+                  }
+                  try {
+                    await onQuickHighlight();
+                  } catch (error) {
+                    onError(error, "Failed to create quick highlight");
+                  }
+                }}
+              >
+                Highlight
+              </button>
+              <button
+                id="quickUnderlineBtn"
+                className="rose-btn"
+                onClick={async () => {
+                  if (!hasPendingSelection) {
+                    return;
+                  }
+                  try {
+                    await onQuickUnderline();
+                  } catch (error) {
+                    onError(error, "Failed to create quick underline");
+                  }
+                }}
+              >
+                Underline
+              </button>
+              <button
+                id="quickDismissBtn"
+                aria-label="Dismiss selection tools"
+                className="ghost-btn"
+                onClick={() => onHideQuickAnnotator()}
+              >
+                ✕
+              </button>
+            </div>
+          </div>
         </div>
         <div
-          id="quickAnnotator"
-          ref={quickAnnotatorRef}
-          className={`quick-annotator ${quickVisible ? "" : "hidden"}`}
-          style={{ left: `${quickLeft}px`, top: `${quickTop}px` }}
+          id="stageLoading"
+          role="status"
+          className={`stage-loading ${loadingCount > 0 || props.switching ? "" : "hidden"}`}
         >
-          <input
-            id="quickCommentInput"
-            aria-label="Comment on selected passage"
-            placeholder="Quick comment (optional)"
-            value={quickCommentInput}
-            onChange={(event) => onQuickCommentInputChange(event.target.value)}
-          />
-          <div className="row">
-            <button
-              id="quickHighlightBtn"
-              className="amber-btn"
-              onClick={async () => {
-                if (!hasPendingSelection) {
-                  return;
-                }
-                try {
-                  await onQuickHighlight();
-                } catch (error) {
-                  onError(error, "Failed to create quick highlight");
-                }
-              }}
-            >
-              Highlight
-            </button>
-            <button
-              id="quickUnderlineBtn"
-              className="rose-btn"
-              onClick={async () => {
-                if (!hasPendingSelection) {
-                  return;
-                }
-                try {
-                  await onQuickUnderline();
-                } catch (error) {
-                  onError(error, "Failed to create quick underline");
-                }
-              }}
-            >
-              Underline
-            </button>
-            <button
-              id="quickDismissBtn"
-              aria-label="Dismiss selection tools"
-              className="ghost-btn"
-              onClick={() => onHideQuickAnnotator()}
-            >
-              ✕
-            </button>
-          </div>
+          {props.switching ? "Loading paper…" : stageLoadingLabel}
         </div>
-      </div>
-    </section>
+      </section>
+    </>
   );
 }

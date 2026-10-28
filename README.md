@@ -43,15 +43,25 @@ Check the highlights or saved notes you want to keep in Evidence, inspect the
 preview, then import. Open Brief to download a source-linked brief and return to
 its supporting passages. **Project papers** switches between papers under a shared
 research question; each browser tab's evidence actions stay bound to its paper session.
+Switching papers keeps the reader mounted, preserves sidebar sizes and the active
+workspace tab, and restores each paper's page. Fit width or manual zoom stays consistent
+across papers; browser Back and Forward return through the reading history.
 The combined brief retains per-paper source links and evidence coverage.
 Imported observations retain their review status. Standalone APW remains
 usable without the orchestration package.
 
 Drag the sidebar edges, or focus a divider and use the arrow keys, to make more
-room for the paper. **Focus on paper** hides both sidebars. On smaller screens,
+room for the paper. **Focus** hides both sidebars; **Exit focus** restores them. On smaller screens,
 **Papers** and **Workspace** open one drawer at a time; Escape closes the drawer.
 The Notes tab lets you link a thought to readable highlight quotations. Technical
 identifiers, activity logs and exports stay available in expandable sections.
+
+The research desk keeps a compact library and evidence pane beside the paper,
+with the full title and any recorded authors, journal and year above the reading
+controls. Open **Find in document** (or press `f` / Ctrl+F) when needed; Escape
+clears and closes search. Theme and keyboard help are under **Reader settings**
+in the app bar. **Find project evidence** and its **Filters** expand separately
+so an empty Evidence tab starts with the next reading action.
 
 Python 3.12 or newer is required; **Python 3.14 is recommended**.
 The repository default is recorded in `.python-version`.

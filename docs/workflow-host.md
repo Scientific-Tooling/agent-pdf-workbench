@@ -25,6 +25,12 @@ Scientific Tooling implements this protocol and owns its persistent workspace,
 background process and import artifacts. Its CLI is the recommended public
 entry point; use this embedding interface when implementing another local host.
 
+Status and each entry in `papers` may include optional `bibliography` with
+`authors` (a list of display names), `venue` and `year`. The reader uses these
+recorded fields for the document byline and compact paper list. Omit or return
+null when unavailable; the reader does not infer bibliography from filenames.
+Scientific Tooling supplies it only from the paper's explicitly linked work.
+
 ## Optional project evidence search (unreleased)
 
 A host can advertise `capabilities: {"evidence_search": true}` in session status
@@ -66,3 +72,27 @@ entries. Pending replies cannot update a different session. Failed identical
 requests retain their ID for safe replay; sci also saves requests durably.
 Markdown download preserves separate support and review labels. Standalone readers
 and hosts without the capability retain their existing tabs.
+
+## Optional paper discovery (unreleased)
+
+A host advertises `capabilities: {"discovery": true}` and implements
+`discovery(params)`. `GET /api/workflow/discovery` passes `session_id` and optional
+`discovery_id` after the normal Host/Origin checks. The host verifies project
+ownership and returns saved discovery summaries, selections and, when requested,
+the selected discovery with its candidates. Missing support returns 404.
+
+The paper navigation panel offers query/identifier search, saved discoveries,
+bibliographic metadata, explicit PDF selection and interrupted-selection retry.
+POST `/api/workflow` actions are `discovery_search`, `discovery_lookup`,
+`discovery_select`, and `discovery_retry`, with the current `session_id`.
+Search carries `query`, `provider` and `limit`; lookup carries `query`. Selection
+carries `discovery_id`, `candidate_id`, optional numbered `source` and a stable
+`request_id`; retry carries the saved `request_id`. The host owns network access,
+bounded retrieval, artifacts, identity reconciliation and native ingestion.
+
+APW renders metadata as text and safe HTTPS links. It never treats an abstract as
+a read source, selects among multiple PDF links implicitly or promotes review
+status. Identical failed selections retain their request ID; saved pending/failed
+selections can be retried after reopening. Session changes discard old replies.
+Successful additions refresh Project papers and use the host's verified session
+links. Standalone readers and hosts without the capability retain their controls.

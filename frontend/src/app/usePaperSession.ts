@@ -10,6 +10,7 @@ import { paperRefFromUri } from "../utils/main-utils";
 import { DEFAULT_AGENT_ID, DEFAULT_USER_ID } from "./app-types";
 import type { ToastType } from "./app-types";
 import type { OpenDocument } from "./usePdfReader";
+import { useSyncedRef } from "../hooks/useSyncedRef";
 
 interface PaperSessionParams {
   sessionRef: MutableRefObject<PaperSession | null>;
@@ -26,6 +27,7 @@ interface PaperSessionParams {
   resetViewer: () => void;
   clearSearch: () => void;
   clearWorkspaceData: () => void;
+  prepareForPaper: () => void;
   setStatus: (message: string) => void;
   showToast: (message: string, type?: ToastType, durationMs?: number) => void;
   onError: (error: unknown, fallback?: string) => void;
@@ -47,6 +49,7 @@ export function usePaperSession(params: PaperSessionParams) {
     resetViewer,
     clearSearch,
     clearWorkspaceData,
+    prepareForPaper,
     setStatus,
     showToast,
     onError,
@@ -57,6 +60,8 @@ export function usePaperSession(params: PaperSessionParams) {
   const [pdfUri, setPdfUri] = useState("/tmp/paper.pdf");
   const [recentPapers, setRecentPapersState] = useState<RecentPaper[]>(() => getRecentPapers());
   const transitionRef = useRef(0);
+  const [switching, setSwitching] = useState(false);
+  const switchingRef = useRef(false);
 
   function beginTransition(): number {
     transitionRef.current += 1;
@@ -101,6 +106,8 @@ export function usePaperSession(params: PaperSessionParams) {
       return;
     }
     const transitionId = beginTransition();
+    switchingRef.current = false;
+    setSwitching(false);
     await leaveCurrentSession(transitionId);
     if (!isCurrentTransition(transitionId)) {
       return;
@@ -118,7 +125,12 @@ export function usePaperSession(params: PaperSessionParams) {
    */
   async function enterSession(
     target: PaperSession,
-    options: { preferredPage?: number; passage?: PassageResponse } = {},
+    options: {
+      preferredPage?: number;
+      passage?: PassageResponse;
+      preserveView?: boolean;
+      pushHistory?: boolean;
+    } = {},
     transitionId: number,
   ): Promise<boolean> {
     if (!isCurrentTransition(transitionId)) {
@@ -130,6 +142,7 @@ export function usePaperSession(params: PaperSessionParams) {
     setPdfUri(target.pdf_uri);
     clearSearch();
     clearWorkspaceData();
+    prepareForPaper();
 
     const progress = getProgress(target.paper_ref);
     await openDocument({
@@ -138,7 +151,8 @@ export function usePaperSession(params: PaperSessionParams) {
       page: options.preferredPage ?? progress?.lastPage ?? 1,
       // No saved zoom means no decision to honour, so the page fits the width
       // it actually has instead of a hard-coded 135%.
-      zoom: progress?.zoom,
+      zoom: progress?.zoomMode === "fit" ? undefined : progress?.zoom,
+      preserveView: options.preserveView,
       sessionId: target.id,
       expectedSha256: options.passage?.document_sha256,
     });
@@ -154,7 +168,7 @@ export function usePaperSession(params: PaperSessionParams) {
       if (!isCurrentTransition(transitionId)) return false;
     }
     refreshRecentPapers();
-    rememberSessionInUrl(target.id, !!options.passage);
+    rememberSessionInUrl(target.id, !!options.passage, options.pushHistory);
     setStatus(
       options.passage ? `passage ready — page ${options.passage.annotation.page}` : "session ready",
     );
@@ -167,6 +181,8 @@ export function usePaperSession(params: PaperSessionParams) {
     options: { preferredPage?: number; passage?: PassageResponse } = {},
   ): Promise<void> {
     const transitionId = beginTransition();
+    switchingRef.current = false;
+    setSwitching(false);
     await leaveCurrentSession(transitionId);
     if (!isCurrentTransition(transitionId)) {
       return;
@@ -210,7 +226,11 @@ export function usePaperSession(params: PaperSessionParams) {
     }
   }
 
-  function rememberSessionInUrl(sessionId: string | null, preservePassage = false): void {
+  function rememberSessionInUrl(
+    sessionId: string | null,
+    preservePassage = false,
+    push = false,
+  ): void {
     // Keeping the id in the URL means a reload — or a link an agent hands the
     // reader — lands back in the same session instead of starting a new one.
     const url = new URL(window.location.href);
@@ -222,64 +242,82 @@ export function usePaperSession(params: PaperSessionParams) {
     url.searchParams.delete("paper_ref");
     url.searchParams.delete("pdf_uri");
     if (!preservePassage) clearPassageQuery(url.searchParams);
-    window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+    const next = `${url.pathname}${url.search}`;
+    if (push && next !== `${window.location.pathname}${window.location.search}`) {
+      window.history.pushState({}, "", next);
+    } else {
+      window.history.replaceState({}, "", next);
+    }
   }
 
-  async function attachToSession(sessionId: string, passage?: PassageResponse): Promise<void> {
-    if (sessionRef.current?.id === sessionId) {
+  async function attachToSession(
+    sessionId: string,
+    passage?: PassageResponse,
+    pushHistory = false,
+  ): Promise<void> {
+    if (sessionRef.current?.id === sessionId && !switchingRef.current && !passage) {
       return;
     }
     const transitionId = beginTransition();
-    const attached =
-      passage?.session ??
-      (await apiGet<PaperSession>(`/api/session?session_id=${encodeURIComponent(sessionId)}`));
-
-    if (!isCurrentTransition(transitionId)) {
-      return;
-    }
-
-    if (attached.closed_at) {
-      if (passage) {
-        // A citation outlives a reading session. Start a reading session for
-        // the same verified document and paper-scoped annotation.
-        await openPaperWithInputs(attached.paper_ref, attached.pdf_uri, {
-          preferredPage: passage.annotation.page,
-          passage,
-        });
-        return;
-      }
-      setPaperRef(attached.paper_ref);
-      setPdfUri(attached.pdf_uri);
-      setStatus("That session is closed. Open the paper again to keep reading.");
-      showToast("Session already closed", "warning");
-      rememberSessionInUrl(null);
-      return;
-    }
-
-    // The viewer is leaving whatever it held, so close it rather than orphan it.
-    await leaveCurrentSession(transitionId);
-    if (!isCurrentTransition(transitionId)) {
-      return;
-    }
-    setStatus("attaching to session...");
+    const preserveView = sessionRef.current !== null;
+    switchingRef.current = true;
+    setSwitching(true);
     try {
-      const entered = await enterSession(
-        attached,
-        { preferredPage: passage?.annotation.page, passage },
-        transitionId,
-      );
-      if (entered && isCurrentTransition(transitionId)) {
-        showToast("Attached to existing session", "success");
-      }
-    } catch (error) {
-      // Attaching must not close the existing session, but a failed PDF load
-      // must not leave its identity mounted over an empty reader.
+      const attached =
+        passage?.session ??
+        (await apiGet<PaperSession>(`/api/session?session_id=${encodeURIComponent(sessionId)}`));
+
       if (!isCurrentTransition(transitionId)) {
         return;
       }
-      resetToEmptyViewer();
-      rememberSessionInUrl(null);
-      throw error;
+
+      if (attached.closed_at) {
+        if (passage) {
+          // A citation outlives a reading session. Start a reading session for
+          // the same verified document and paper-scoped annotation.
+          await openPaperWithInputs(attached.paper_ref, attached.pdf_uri, {
+            preferredPage: passage.annotation.page,
+            passage,
+          });
+          return;
+        }
+        if (sessionRef.current)
+          throw new Error("That session is closed. Reopen the paper from your project.");
+        setPaperRef(attached.paper_ref);
+        setPdfUri(attached.pdf_uri);
+        setStatus("That session is closed. Open the paper again to keep reading.");
+        showToast("Session already closed", "warning");
+        rememberSessionInUrl(null);
+        return;
+      }
+
+      // Hosted sessions belong to the project. Switching views detaches from
+      // one session; only an explicit Close action may close it on the server.
+      setStatus("Loading paper…");
+      try {
+        const entered = await enterSession(
+          attached,
+          { preferredPage: passage?.annotation.page, passage, preserveView, pushHistory },
+          transitionId,
+        );
+        if (!entered) return;
+      } catch (error) {
+        // Attaching must not close the existing session, but a failed PDF load
+        // must not leave its identity mounted over an empty reader.
+        if (!isCurrentTransition(transitionId)) {
+          return;
+        }
+        resetToEmptyViewer();
+        rememberSessionInUrl(null);
+        throw error;
+      }
+    } catch (error) {
+      if (isCurrentTransition(transitionId)) throw error;
+    } finally {
+      if (isCurrentTransition(transitionId)) {
+        switchingRef.current = false;
+        setSwitching(false);
+      }
     }
   }
 
@@ -294,6 +332,36 @@ export function usePaperSession(params: PaperSessionParams) {
   }
 
   const bootstrappedRef = useRef(false);
+  const restoreLocation = useSyncedRef(async () => {
+    const query = new URLSearchParams(window.location.search);
+    const sid = query.get("session_id");
+    if (sid) {
+      const passage = passageQuery(query);
+      if (passage) {
+        const transitionId = beginTransition();
+        const resolved = await apiGet<PassageResponse>(`/api/passage?${passage}`);
+        if (isCurrentTransition(transitionId)) await attachToSession(sid, resolved);
+      } else {
+        await attachToSession(sid);
+      }
+    } else {
+      beginTransition();
+      switchingRef.current = false;
+      setSwitching(false);
+      resetToEmptyViewer();
+    }
+  });
+  useEffect(() => {
+    const restore = () => {
+      void restoreLocation
+        .current()
+        .catch((error) => onError(error, "Could not return to this paper"));
+    };
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+    // The ref dispatches through the current session callbacks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restoreLocation]);
   useEffect(() => {
     if (bootstrappedRef.current) {
       return;
@@ -338,6 +406,8 @@ export function usePaperSession(params: PaperSessionParams) {
 
   return {
     session,
+    switching,
+    switchSession: (sessionId: string) => attachToSession(sessionId, undefined, true),
     paperRef,
     setPaperRef,
     pdfUri,

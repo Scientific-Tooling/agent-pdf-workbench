@@ -1,6 +1,8 @@
 import type { OutlineItem, RecentPaper } from "../types/types";
 import type { HostedWorkflow } from "../app/useHostedWorkflow";
 import { fileNameOf } from "../utils/main-utils";
+import { paperByline } from "../app/paper-byline";
+import { DiscoveryPanel } from "./DiscoveryPanel";
 
 interface ControlPanelProps {
   workflow: HostedWorkflow;
@@ -15,6 +17,7 @@ interface ControlPanelProps {
   onPdfUriChange: (value: string) => void;
   onOpenPaper: () => Promise<void>;
   onCloseSession: () => Promise<void>;
+  onSwitchPaper: (sessionId: string) => Promise<void>;
   onRefreshRecent: () => void;
   onLoadRecent: (paper: RecentPaper) => Promise<void>;
   onJumpToOutlinePage: (page: number) => Promise<void>;
@@ -23,7 +26,8 @@ interface ControlPanelProps {
 
 export function ControlPanel(props: ControlPanelProps) {
   const { workflow, sessionId, pdfUri, paperRef, outline, recentPapers } = props;
-  const hosted = workflow.data?.enabled;
+  const navigation = workflow.navigation ?? workflow.data;
+  const hosted = navigation?.enabled;
   async function safely(operation: () => Promise<void>) {
     try {
       await operation();
@@ -62,23 +66,8 @@ export function ControlPanel(props: ControlPanelProps) {
   );
   return (
     <aside className="panel controls" aria-label="Session and navigation">
-      <div className="app-header">
-        <span className="app-logo" aria-hidden="true">
-          <svg
-            viewBox="0 0 24 24"
-            width="24"
-            height="24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-          >
-            <path d="M4 4h6a3 3 0 0 1 3 3v14a4 4 0 0 0-4-3H4zM13 7h7v14h-3a4 4 0 0 0-4-3" />
-          </svg>
-        </span>
-        <div>
-          <span className="brand-label">Scientific Tooling</span>
-          <h1>Paper workspace</h1>
-        </div>
+      <div className="navigation-heading">
+        <h2>Library</h2>
         {sessionId && (
           <button
             className="ghost-btn drawer-close"
@@ -91,18 +80,14 @@ export function ControlPanel(props: ControlPanelProps) {
       </div>
       {hosted ? (
         <>
-          <section className="project-context">
-            <span className="eyebrow">Research question</span>
-            <p>{workflow.data?.question}</p>
-            <span className="local-label">
-              <span className="status-dot" />
-              Saved in your project
-            </span>
-          </section>
+          <details className="project-context">
+            <summary>Research question</summary>
+            <p>{navigation?.question}</p>
+          </details>
           <nav aria-label="Project papers" className="project-papers">
             <div className="section-head">
               <h2>
-                Papers <span className="count-pill">{workflow.data?.papers?.length ?? 0}</span>
+                Papers <span className="count-pill">{navigation?.papers?.length ?? 0}</span>
               </h2>
               <button
                 className="ghost-btn"
@@ -114,17 +99,36 @@ export function ControlPanel(props: ControlPanelProps) {
               </button>
             </div>
             <ul>
-              {workflow.data?.papers?.map((paper) => (
+              {navigation?.papers?.map((paper) => (
                 <li key={paper.key}>
                   {paper.viewer_url ? (
                     <a
                       href={paper.viewer_url}
+                      onClick={(event) => {
+                        const url = new URL(paper.viewer_url!, window.location.href);
+                        if (
+                          event.button !== 0 ||
+                          event.metaKey ||
+                          event.ctrlKey ||
+                          event.shiftKey ||
+                          event.altKey ||
+                          !paper.session_id ||
+                          url.origin !== window.location.origin ||
+                          url.pathname !== window.location.pathname
+                        )
+                          return;
+                        event.preventDefault();
+                        void safely(() => props.onSwitchPaper(paper.session_id!));
+                      }}
+                      title={paper.title}
                       aria-current={paper.session_id === sessionId ? "page" : undefined}
                     >
-                      <span className="paper-index">{paper.key}</span>
                       <span className="paper-name">
-                        {paper.title}
-                        <small>
+                        <span className="paper-list-title">{paper.title}</span>
+                        {paperByline(paper.bibliography, true) && (
+                          <small>{paperByline(paper.bibliography, true)}</small>
+                        )}
+                        <small className="paper-phase">
                           {paper.phase === "imported" || paper.phase === "brief"
                             ? "Evidence saved"
                             : paper.phase === "preview"
@@ -145,6 +149,13 @@ export function ControlPanel(props: ControlPanelProps) {
               ))}
             </ul>
           </nav>
+          {workflow.sessionId && navigation?.capabilities?.discovery && (
+            <DiscoveryPanel
+              key={workflow.sessionId}
+              sessionId={workflow.sessionId}
+              refresh={workflow.refresh}
+            />
+          )}
         </>
       ) : (
         <section className="card session-card">
@@ -165,8 +176,8 @@ export function ControlPanel(props: ControlPanelProps) {
         </section>
       )}
       {outline.length > 0 && (
-        <section className="outline-section">
-          <h2>In this paper</h2>
+        <details className="outline-section">
+          <summary>In this paper</summary>
           <ul id="outlineList" className="list compact-list">
             {outline.map((item) => (
               <li
@@ -183,7 +194,7 @@ export function ControlPanel(props: ControlPanelProps) {
               </li>
             ))}
           </ul>
-        </section>
+        </details>
       )}
       {!hosted && (
         <section className="recent-section">

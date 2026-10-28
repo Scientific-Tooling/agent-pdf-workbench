@@ -42,6 +42,36 @@ afterEach(async () => {
 });
 
 describe("hosted workflow request ownership", () => {
+  it("retains only known project navigation while the next session loads", async () => {
+    const papers = ["first", "second"].map((id) => ({
+      key: id,
+      session_id: id,
+      title: `${id} paper`,
+      phase: "reading",
+      viewer_url: `/?session_id=${id}`,
+    }));
+    vi.mocked(apiGet).mockResolvedValue({
+      ...status("first paper"),
+      papers,
+      capabilities: { comparisons: true },
+      brief: { text: "First brief" },
+    });
+    await mount("first");
+    await act(async () => model.toggle("annotation:one"));
+    const next = deferred<unknown>();
+    vi.mocked(apiGet).mockReturnValue(next.promise);
+    await mount("second");
+    expect(model.navigation?.title).toBe("second paper");
+    expect(model.navigation?.papers).toEqual(papers);
+    expect(model.navigation).not.toHaveProperty("brief");
+    expect(model.data).toBeNull();
+    expect(model.preview).toBeNull();
+    expect(model.selected).toEqual([]);
+    await act(async () => model.run("apply"));
+    expect(apiPost).not.toHaveBeenCalled();
+    await mount("unrelated");
+    expect(model.navigation).toBeUndefined();
+  });
   it("keeps the server's conflict explanation when an import is rejected", async () => {
     vi.mocked(apiGet).mockResolvedValue(status("Paper"));
     const result = { conflicts: [{ reason: "revision_changed", id: "one" }] };

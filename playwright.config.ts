@@ -17,6 +17,7 @@ export default defineConfig({
   fullyParallel: false,
   retries: 0,
   workers: 1,
+  reporter: process.env.CI ? [["list"], ["github"]] : [["list"]],
   use: {
     baseURL: E2E_URL,
     trace: "on-first-retry",

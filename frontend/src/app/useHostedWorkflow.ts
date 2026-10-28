@@ -17,6 +17,7 @@ export interface Preview {
 }
 export interface WorkflowStatus {
   enabled: boolean;
+  capabilities?: { evidence_search?: boolean; comparisons?: boolean };
   question?: string;
   title?: string;
   papers?: {

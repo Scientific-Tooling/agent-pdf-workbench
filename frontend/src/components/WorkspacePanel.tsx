@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { buildEventLines } from "../utils/timeline";
 import { WorkflowPanel } from "./WorkflowPanel";
+import { EvidenceSearch } from "./EvidenceSearch";
+import { ComparisonPanel } from "./ComparisonPanel";
 import type { HostedWorkflow } from "../app/useHostedWorkflow";
 import type { ActionEvent, Annotation, Note, SearchResult } from "../types/types";
 
@@ -53,6 +55,7 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
   const tabs = [
     { id: "evidence", label: "Evidence", count: annotations.length },
     { id: "notes", label: "Notes", count: notes.length },
+    ...(workflow.data?.capabilities?.comparisons ? [{ id: "compare", label: "Compare" }] : []),
     { id: "brief", label: "Brief" },
   ];
   const hosted = workflow.data?.enabled;
@@ -141,6 +144,13 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
           tabIndex={0}
           hidden={tab !== "evidence"}
         >
+          {workflow.sessionId && workflow.data?.capabilities?.evidence_search && (
+            <EvidenceSearch
+              key={`${workflow.sessionId}:${workflow.data.preview?.id}:${workflow.data.preview?.applied}`}
+              sessionId={workflow.sessionId}
+              papers={workflow.data.papers ?? []}
+            />
+          )}
           <div className="section-intro">
             <h3>Saved highlights</h3>
             <p className="muted">
@@ -411,6 +421,11 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
             ))}
           </ul>
         </section>
+        {tab === "compare" && workflow.sessionId && workflow.data?.capabilities?.comparisons && (
+          <section id="panel-compare" role="tabpanel" aria-labelledby="tab-compare" tabIndex={0}>
+            <ComparisonPanel key={workflow.sessionId} sessionId={workflow.sessionId} />
+          </section>
+        )}
         <section
           id="panel-brief"
           role="tabpanel"

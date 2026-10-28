@@ -18,7 +18,12 @@ export interface Preview {
 }
 export interface WorkflowStatus {
   enabled: boolean;
-  capabilities?: { evidence_search?: boolean; comparisons?: boolean; discovery?: boolean };
+  capabilities?: {
+    evidence_search?: boolean;
+    comparisons?: boolean;
+    discovery?: boolean;
+    maintenance?: boolean;
+  };
   question?: string;
   title?: string;
   bibliography?: Bibliography | null;
@@ -32,6 +37,8 @@ export interface WorkflowStatus {
   }[];
   preview?: Preview | null;
   brief?: {
+    id?: string;
+    freshness?: string;
     text: string;
     passage_urls: string[];
     counts?: { evidence: number; unreviewed: number };
@@ -78,6 +85,7 @@ export function useHostedWorkflow(sessionId: string | null) {
   const [state, setState] = useState<State>(() => empty(sessionId));
   const generation = useRef<symbol | null>(null);
   const working = useRef(false);
+  const briefRequest = useRef<string | null>(null);
   const current = state.sessionId === sessionId ? state : empty(sessionId);
   const project = useRef<WorkflowNavigation | undefined>(undefined);
   if (current.data) {
@@ -95,6 +103,7 @@ export function useHostedWorkflow(sessionId: string | null) {
     const epoch = Symbol();
     generation.current = epoch;
     working.current = false;
+    briefRequest.current = null;
     if (sessionId) {
       getStatus(sessionId)
         .then((data) => {
@@ -153,6 +162,9 @@ export function useHostedWorkflow(sessionId: string | null) {
         action,
         session_id: sessionId,
         preview_id: current.preview?.id,
+        ...(action === "brief"
+          ? { request_id: (briefRequest.current ??= crypto.randomUUID().replaceAll("-", "")) }
+          : {}),
         annotation_ids: current.selected
           .filter((key) => key.startsWith("annotation:"))
           .map((key) => key.slice(11)),
@@ -165,6 +177,7 @@ export function useHostedWorkflow(sessionId: string | null) {
           setState({ ...current, preview: result.preview ?? null, message: "", error: false });
       } else {
         const data = await getStatus(sessionId);
+        if (action === "brief" && generation.current === epoch) briefRequest.current = null;
         if (generation.current === epoch)
           setState({
             ...restored(sessionId, data),

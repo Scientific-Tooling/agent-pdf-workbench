@@ -53,6 +53,7 @@ class ReadingWorkflow(Protocol):
 
     def comparisons(self, params: dict) -> dict: ...
     def discovery(self, params: dict) -> dict: ...
+    def maintenance(self, params: dict) -> dict: ...
 
 # Maximum POST body size (1 MiB). Protects against runaway payloads.
 _MAX_REQUEST_BODY = 1 * 1024 * 1024
@@ -422,7 +423,8 @@ def _create_handler(
             path = parsed.path
             query = parse_qs(parsed.query)
 
-            if path in {"/api/workflow/search", "/api/workflow/comparisons", "/api/workflow/discovery"}:
+            if path in {"/api/workflow/search", "/api/workflow/comparisons",
+                        "/api/workflow/discovery", "/api/workflow/maintenance"}:
                 operation = path.rsplit("/", 1)[1]
                 if workflow is None or not callable(getattr(workflow, operation, None)):
                     _error_response(self, "This operation requires a compatible project host",

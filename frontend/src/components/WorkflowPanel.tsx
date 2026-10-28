@@ -108,6 +108,12 @@ export function WorkflowPanel({
           </div>
           {brief ? (
             <>
+              {brief.freshness && (
+                <p className="muted">
+                  Retained brief edition. Check project changes above before using it for a new
+                  decision.
+                </p>
+              )}
               <div className="brief-stats">
                 {brief.counts && (
                   <>

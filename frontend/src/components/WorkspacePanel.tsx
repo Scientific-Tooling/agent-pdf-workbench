@@ -3,6 +3,7 @@ import { buildEventLines } from "../utils/timeline";
 import { WorkflowPanel } from "./WorkflowPanel";
 import { EvidenceSearch } from "./EvidenceSearch";
 import { ComparisonPanel } from "./ComparisonPanel";
+import { ProjectHistoryPanel } from "./ProjectHistoryPanel";
 import { ReaderIcon } from "./ReaderIcon";
 import type { HostedWorkflow } from "../app/useHostedWorkflow";
 import type { ActionEvent, Annotation, Note, SearchResult } from "../types/types";
@@ -457,7 +458,19 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
           hidden={tab !== "brief"}
         >
           {hosted ? (
-            <WorkflowPanel workflow={workflow} view="brief" onOpenBrief={() => setTab("brief")} />
+            <>
+              {tab === "brief" &&
+                workflow.data?.capabilities?.maintenance &&
+                workflow.sessionId && (
+                  <ProjectHistoryPanel
+                    key={workflow.sessionId}
+                    sessionId={workflow.sessionId}
+                    editionId={workflow.data.brief?.id}
+                    refresh={workflow.refresh}
+                  />
+                )}
+              <WorkflowPanel workflow={workflow} view="brief" onOpenBrief={() => setTab("brief")} />
+            </>
           ) : (
             <div className="empty-state">
               <h3>Keep a copy of your reading.</h3>

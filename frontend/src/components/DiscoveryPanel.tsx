@@ -20,6 +20,12 @@ interface Discovery {
   status: string;
   error: string | null;
   candidates: Candidate[];
+  candidate_changes?: {
+    added: string[];
+    changed: string[];
+    not_returned: string[];
+    unchanged: string[];
+  };
 }
 interface Selection {
   request: { id: string; discovery_id: string; candidate_id: string };
@@ -215,6 +221,24 @@ export function DiscoveryPanel({
               <small>Retrieved {run.retrieved_at}</small>
             </p>
             {run.error && <p className="notice">{run.error}</p>}
+            {run.status === "complete" && (
+              <button
+                className="secondary-btn"
+                disabled={busy}
+                onClick={() => void perform("repeat", { discovery_id: run.id })}
+              >
+                Repeat this saved discovery
+              </button>
+            )}
+            {run.candidate_changes && (
+              <p className="notice">
+                {run.candidate_changes.added.length} new candidates ·{" "}
+                {run.candidate_changes.changed.length} metadata changes ·{" "}
+                {run.candidate_changes.not_returned.length} not returned this time. A bounded result
+                list does not establish that a paper was removed. Inspect candidates before
+                selecting any PDF.
+              </p>
+            )}
             {run.status === "complete" && !run.candidates.length && (
               <p>No candidates returned. Try a different query.</p>
             )}

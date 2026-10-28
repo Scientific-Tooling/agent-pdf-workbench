@@ -1701,7 +1701,8 @@ pre {
   gap: 10px;
   min-width: 0;
 }
-.discovery-panel select {
+.discovery-panel select,
+.project-history select {
   width: 100%;
   min-width: 0;
   min-height: 40px;
@@ -1711,7 +1712,8 @@ pre {
   border: 1px solid var(--border-default);
   border-radius: 7px;
 }
-.discovery-panel select:focus-visible {
+.discovery-panel select:focus-visible,
+.project-history select:focus-visible {
   outline: 2px solid var(--border-focus);
 }
 .discovery-candidate {
@@ -1721,4 +1723,35 @@ pre {
 .discovery-candidate h3,
 .discovery-candidate p {
   margin: 0;
+}
+.project-history {
+  margin-bottom: 24px;
+}
+.project-history .row {
+  flex-wrap: wrap;
+}
+.project-history label {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+}
+.project-history .notice small {
+  display: block;
+  margin-top: 8px;
+}
+.history-items {
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+}
+.history-items > li {
+  border-bottom: 1px solid var(--border-default);
+  padding: 12px 0;
+  overflow-wrap: anywhere;
+}
+.history-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 32rem;
+  overflow-y: auto;
 }

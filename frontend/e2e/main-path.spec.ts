@@ -109,7 +109,7 @@ test("reader main path: open -> search -> annotate -> note -> export", async ({
   await page.locator("#findInDocumentBtn").click();
   await page.locator("#searchInput").fill("attention");
   await page.locator("#searchBtn").click();
-  await expect(page.locator("#searchInfo")).not.toContainText("0 matches");
+  await expect(page.locator("#searchInfo")).toHaveText(/^[1-9]\d*\/[1-9]\d* matches$/);
 
   if (!(await page.locator("#annotationCommentInput").isVisible()))
     await page.getByText("Highlight tools & comments", { exact: true }).click();
@@ -120,7 +120,9 @@ test("reader main path: open -> search -> annotate -> note -> export", async ({
     await page.getByText("Highlight tools & comments", { exact: true }).click();
   await selectFirstTextSpan(page);
   await page.locator("#highlightBtn").click();
-  await expect(page.locator("#annotationList")).not.toContainText("No annotations yet");
+  await expect(page.locator("#annotationList li.selected .annotation-comment")).toHaveText(
+    "playwright highlight",
+  );
 
   await page.getByRole("tab", { name: /^Notes/ }).click();
   await page.locator("#noteTitleInput").fill("E2E Main Note");
@@ -401,7 +403,7 @@ test("opening another paper clears the previous document's search", async ({ pag
   await page.locator("#findInDocumentBtn").click();
   await page.locator("#searchInput").fill("attention");
   await page.locator("#searchBtn").click();
-  await expect(page.locator("#searchInfo")).not.toContainText("0 matches");
+  await expect(page.locator("#searchInfo")).toHaveText(/^[1-9]\d*\/[1-9]\d* matches$/);
 
   // Both entry paths share one tail; a paper switch must not keep hits that
   // point into the document that was on screen before.
@@ -464,7 +466,7 @@ test("search marks its hits on the page, with the active hit distinguishable", a
   await page.locator("#findInDocumentBtn").click();
   await page.locator("#searchInput").fill("this");
   await page.locator("#searchBtn").click();
-  await expect(page.locator("#searchInfo")).not.toContainText("0 matches");
+  await expect(page.locator("#searchInfo")).toHaveText(/^[1-9]\d*\/[1-9]\d* matches$/);
 
   // The classes were applied while the stylesheet defined neither, so the
   // counter reported hits that were invisible on the page. Assert the painted
@@ -546,7 +548,7 @@ test("jumping to a hit below the fold brings it into view", async ({ page }) => 
   await page.locator("#findInDocumentBtn").click();
   await page.locator("#searchInput").fill("notes");
   await page.locator("#searchBtn").click();
-  await expect(page.locator("#searchInfo")).not.toContainText("0 matches");
+  await expect(page.locator("#searchInfo")).toHaveText(/^[1-9]\d*\/[1-9]\d* matches$/);
 
   // The reader should not have to hunt for the match the counter just claimed.
   await expect

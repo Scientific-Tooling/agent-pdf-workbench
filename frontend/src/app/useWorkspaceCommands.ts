@@ -156,6 +156,7 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
     const saved = asAnnotation(savedRecord.annotation) ?? annotation;
     if (sessionRef.current?.id === activeSession.id) {
       upsertAnnotation(saved);
+      setSelectedAnnotationId(saved.id);
       // Saving owns only the selection captured at invocation. A newer
       // selection may already exist while persistence or telemetry is pending.
       const currentSelection = window.getSelection();
@@ -194,7 +195,8 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
   }
 
   async function updateSelectedAnnotationMeta(): Promise<void> {
-    if (!selectedAnnotation || !sessionRef.current) {
+    const activeSession = sessionRef.current;
+    if (!selectedAnnotation || !activeSession) {
       return;
     }
     const nextComment = annotationCommentInput.trim();
@@ -212,17 +214,20 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
       updatedAt: nowIso(),
     };
     const savedRecord = await apiPost<AnnotationRecord>("/api/annotations", {
-      session_id: sessionRef.current.id,
+      session_id: activeSession.id,
       annotation: updated,
     });
     const saved = asAnnotation(savedRecord.annotation) ?? updated;
-    upsertAnnotation(saved);
+    if (sessionRef.current?.id === activeSession.id) {
+      // Autosaving an older editor must not change the user's selection.
+      upsertAnnotation(saved);
+    }
     await recordAction(
       "annotation_upsert",
       { annotation: saved },
       saved.page,
       saved.quote,
-      sessionRef.current.id,
+      activeSession.id,
     );
     if (saved.comment) {
       await recordAction(
@@ -230,10 +235,12 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
         { annotation_id: saved.id, text: saved.comment, tags: saved.tags },
         saved.page,
         saved.quote,
-        sessionRef.current.id,
+        activeSession.id,
       );
     }
-    showToast("Annotation metadata updated", "success", 1400);
+    if (sessionRef.current?.id === activeSession.id) {
+      showToast("Annotation metadata updated", "success", 1400);
+    }
   }
 
   async function jumpToAnnotation(annotationId: string): Promise<void> {

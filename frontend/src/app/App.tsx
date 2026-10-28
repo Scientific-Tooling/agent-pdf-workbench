@@ -254,6 +254,7 @@ export function App() {
         );
       }
       upsertAnnotation(annotation);
+      setSelectedAnnotationId(annotation.id);
     },
     resetViewer,
     clearSearch,

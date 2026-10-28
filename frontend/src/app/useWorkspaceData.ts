@@ -259,7 +259,6 @@ export function useWorkspaceData(params: WorkspaceDataParams) {
       next.push(annotation);
       return next;
     });
-    setSelectedAnnotationId(annotation.id);
   }
 
   function deleteAnnotation(annotationId: string): void {

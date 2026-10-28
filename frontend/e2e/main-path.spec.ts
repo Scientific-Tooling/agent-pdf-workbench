@@ -188,7 +188,8 @@ test("open failure rolls back newly created session", async ({ page }) => {
 
   await rollbackClose;
   await expect(page.locator("#sessionInfo")).toHaveText("—");
-  await expect(page.locator("#pageInfo")).toContainText("— / —");
+  await expect(page.locator("#pageInfo")).toHaveText("/ —");
+  await expect(page.locator("#pageJumpInput")).toBeDisabled();
 });
 
 test("closing a session resets active workspace state", async ({ page }) => {
@@ -206,7 +207,8 @@ test("closing a session resets active workspace state", async ({ page }) => {
   await page.locator("#closePaperBtn").click();
   await expect(page.locator("#statusText")).toContainText("session closed");
   await expect(page.locator("#sessionInfo")).toHaveText("—");
-  await expect(page.locator("#pageInfo")).toContainText("— / —");
+  await expect(page.locator("#pageInfo")).toHaveText("/ —");
+  await expect(page.locator("#pageJumpInput")).toBeDisabled();
 });
 
 test("recent paper load reopens session directly", async ({ page }) => {
@@ -329,7 +331,8 @@ test("a failed session attach resets the viewer identity", async ({ page }) => {
 
   await expect(page.locator("#sessionInfo")).toHaveText("—");
   await expect(page.locator("#paperRef")).toHaveValue("");
-  await expect(page.locator("#pageInfo")).toContainText("— / —");
+  await expect(page.locator("#pageInfo")).toHaveText("/ —");
+  await expect(page.locator("#pageJumpInput")).toBeDisabled();
   await expect(page).not.toHaveURL(/session_id=/);
 });
 

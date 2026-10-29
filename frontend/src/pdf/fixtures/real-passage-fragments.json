@@ -1,0 +1,727 @@
+{
+  "attribution": [
+    {
+      "title": "A practical solution to pseudoreplication bias in single-cell studies",
+      "authors": [
+        "Kip D Zimmerman",
+        "Mark A Espeland",
+        "Carl D Langefeld"
+      ],
+      "doi": "10.1038/s41467-021-21038-1",
+      "url": "https://www.nature.com/articles/s41467-021-21038-1.pdf",
+      "sha256": "464b4845a2b4d02fb3f2cd23b61f0bc9bd2287fc6ad2114baf7d64919006501c",
+      "license": "https://creativecommons.org/licenses/by/4.0/"
+    },
+    {
+      "title": "Confronting false discoveries in single-cell differential expression",
+      "authors": [
+        "Jordan W. Squair",
+        "Matthieu Gautier",
+        "Claudia Kathe",
+        "Mark A. Anderson",
+        "Nicholas D. James",
+        "Thomas H. Hutson",
+        "Rémi Hudelle",
+        "Taha Qaiser",
+        "Kaya J. E. Matson",
+        "Quentin Barraud",
+        "Ariel J. Levine",
+        "Gioele La Manno",
+        "Michael A. Skinnider",
+        "Grégoire Courtine"
+      ],
+      "doi": "10.1038/s41467-021-25960-2",
+      "url": "https://www.nature.com/articles/s41467-021-25960-2.pdf",
+      "sha256": "465fd1842f2e07e17d55e0170dd96dd994f61a15c019655f3f1503ef37e7f22a",
+      "license": "https://creativecommons.org/licenses/by/4.0/"
+    },
+    {
+      "title": "muscat detects subpopulation-specific state transitions from multi-sample multi-condition single-cell transcriptomics data",
+      "authors": [
+        "Helena L. Crowell",
+        "Charlotte Soneson",
+        "Pierre-Luc Germain",
+        "Daniela Calini",
+        "Ludovic Collin",
+        "Catarina Raposo",
+        "Dheeraj Malhotra",
+        "Mark D. Robinson"
+      ],
+      "doi": "10.1038/s41467-020-19894-4",
+      "url": "https://www.nature.com/articles/s41467-020-19894-4.pdf",
+      "sha256": "7b4cc7a8890549c6f34d6ebdb3660c2143bc7830b8004e8cfae270eaa72dbc0a",
+      "license": "https://creativecommons.org/licenses/by/4.0/"
+    }
+  ],
+  "changes": "Selected text fragments extracted using pinned PDF.js; no figures included. Quotes retained from the 2026-10-28 pilot.",
+  "cases": [
+    {
+      "note_id": "n_000004",
+      "quote": "We compared the performance of the fourteen methods across the entire compendium of the eighteen gold standard datasets. This analysis immediately revealed that all six of the top- performing methods shared a common analytical property. These methods aggregated cells within a biological replicate, to form so- called ‘pseudobulks’, before applying a statistical test",
+      "page": 2,
+      "items": [
+        {
+          "str": "We compared the performance of the fourteen methods across",
+          "hasEOL": true
+        },
+        {
+          "str": "the entire compendium of the eighteen gold standard datasets.",
+          "hasEOL": true
+        },
+        {
+          "str": "This",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "analysis",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "immediately",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "revealed",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "that",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "all",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "six",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "of",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "the",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "top-",
+          "hasEOL": true
+        },
+        {
+          "str": "performing methods shared a common analytical property. These",
+          "hasEOL": true
+        },
+        {
+          "str": "methods aggregated cells within a biological replicate, to form so-",
+          "hasEOL": true
+        },
+        {
+          "str": "called",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "‘",
+          "hasEOL": false
+        },
+        {
+          "str": "pseudobulks",
+          "hasEOL": false
+        },
+        {
+          "str": "’",
+          "hasEOL": false
+        },
+        {
+          "str": ", before applying a statistical test (Fig. 1c)",
+          "hasEOL": false
+        },
+        {
+          "str": "18",
+          "hasEOL": false
+        },
+        {
+          "str": ".",
+          "hasEOL": true
+        },
+        {
+          "str": "In comparison, methods that compared individual cells per-",
+          "hasEOL": true
+        },
+        {
+          "str": "formed poorly. The differences between pseudobulk and single-",
+          "hasEOL": true
+        },
+        {
+          "str": "cell methods were highly signi",
+          "hasEOL": false
+        },
+        {
+          "str": "fi",
+          "hasEOL": false
+        },
+        {
+          "str": "cant (Fig. 1d), and robust to the",
+          "hasEOL": true
+        },
+        {
+          "str": "methodology",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "used",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        }
+      ]
+    },
+    {
+      "note_id": "n_000006",
+      "quote": "In datasets of 25-50 cells, GLMMs could produce accurate results under very speci fic parameter combinations. However, in datasets comprising 500 or more cells, their performance converged to that of pseudobulk DE methods.",
+      "page": 8,
+      "items": [
+        {
+          "str": "Supplementary Fig. 10a-b). In datasets of 25-50 cells, GLMMs",
+          "hasEOL": true
+        },
+        {
+          "str": "could produce accurate results under very speci",
+          "hasEOL": false
+        },
+        {
+          "str": "fi",
+          "hasEOL": false
+        },
+        {
+          "str": "c parameter",
+          "hasEOL": true
+        },
+        {
+          "str": "combinations. However, in datasets comprising 500 or more cells,",
+          "hasEOL": true
+        },
+        {
+          "str": "their performance converged to that of pseudobulk DE methods.",
+          "hasEOL": true
+        },
+        {
+          "str": "Moreover, the computational resources required to",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "fi",
+          "hasEOL": false
+        },
+        {
+          "str": "t the best-",
+          "hasEOL": true
+        },
+        {
+          "str": "performing",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "GLMMs",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "were",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "enormous.",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "Even",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "in",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "downsampled",
+          "hasEOL": true
+        },
+        {
+          "str": "datasets, DE analysis of a single cell type took an average of 13.5 h",
+          "hasEOL": true
+        },
+        {
+          "str": "(Supplementary Fig. 10c-d). In contrast, pseudobulk methods",
+          "hasEOL": true
+        },
+        {
+          "str": "required only minutes per cell type in our compendium of 46",
+          "hasEOL": true
+        },
+        {
+          "str": "datasets (Supplementary Fig. 10e-f). These observations suggest",
+          "hasEOL": true
+        },
+        {
+          "str": "that, in practice, pseudobulk approaches provide an excellent",
+          "hasEOL": true
+        },
+        {
+          "str": "trade-off between speed and accuracy for single-cell DE analysis.",
+          "hasEOL": false
+        },
+        {
+          "str": "",
+          "hasEOL": true
+        },
+        {
+          "str": "Discussion",
+          "hasEOL": false
+        },
+        {
+          "str": "",
+          "hasEOL": true
+        },
+        {
+          "str": "Accurate DE analysis in single-cell transcriptomics is required to",
+          "hasEOL": true
+        },
+        {
+          "str": "dissect the transcriptional programs underlying the multifaceted",
+          "hasEOL": true
+        },
+        {
+          "str": "responses to disease, trauma, and experimental manipulations.",
+          "hasEOL": true
+        },
+        {
+          "str": "Despite the importance of statistical methods for DE analyses, the",
+          "hasEOL": true
+        },
+        {
+          "str": "principles that determine their performance have remained elu-",
+          "hasEOL": true
+        },
+        {
+          "str": "sive. Here, we demonstrate that the central principle underlying",
+          "hasEOL": true
+        },
+        {
+          "str": "valid DE analysis is the ability of statistical methods to account",
+          "hasEOL": true
+        },
+        {
+          "str": "for the intrinsic variability of biological replicates. Accounting for",
+          "hasEOL": true
+        }
+      ]
+    },
+    {
+      "note_id": "n_000008",
+      "quote": "To ensure that method performances are comparable and do not suffer from low cell numbers, we simulated an average of 200 cells per subpopulation-sample instance, amounting to a total of ~200 × (S1 + S2)× K ≈3, 600 cells per simulation. Each simulation and method was repeated five times per scenario, and performances were averaged across replicates.",
+      "page": 3,
+      "items": [
+        {
+          "str": "To ensure that method performances are comparable and do",
+          "hasEOL": true
+        },
+        {
+          "str": "not suffer from low cell numbers, we simulated an average of 200",
+          "hasEOL": true
+        },
+        {
+          "str": "cells per subpopulation-sample instance, amounting to a total of",
+          "hasEOL": true
+        },
+        {
+          "str": "~200 × (",
+          "hasEOL": false
+        },
+        {
+          "str": "S",
+          "hasEOL": false
+        },
+        {
+          "str": "1",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "+",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "S",
+          "hasEOL": false
+        },
+        {
+          "str": "2",
+          "hasEOL": false
+        },
+        {
+          "str": ") ×",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "K",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "≈",
+          "hasEOL": false
+        },
+        {
+          "str": "3, 600 cells per simulation. Each simulation",
+          "hasEOL": true
+        },
+        {
+          "str": "and",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "method",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "was",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "repeated",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "fi",
+          "hasEOL": false
+        },
+        {
+          "str": "ve",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "times",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "per",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "scenario,",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "and",
+          "hasEOL": true
+        },
+        {
+          "str": "performances were averaged across replicates.",
+          "hasEOL": true
+        },
+        {
+          "str": "In the context of DS analysis, each of the",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "G",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        }
+      ]
+    },
+    {
+      "note_id": "n_000010",
+      "quote": "we recommend mixed-effects models based on long-standing statistical justi fications for the analysis of subsamples, including increased power. This is parti- cularly so in scenarios with heavy imbalance and where within- subject variability is large compared to between-subject variability.",
+      "page": 6,
+      "items": [
+        {
+          "str": "ation; however, we recommend mixed-effects",
+          "hasEOL": true
+        },
+        {
+          "str": "models based on long-standing statistical justi",
+          "hasEOL": false
+        },
+        {
+          "str": "fi",
+          "hasEOL": false
+        },
+        {
+          "str": "cations for the",
+          "hasEOL": true
+        },
+        {
+          "str": "analysis of subsamples, including increased power. This is parti-",
+          "hasEOL": true
+        },
+        {
+          "str": "cularly so in scenarios with heavy imbalance and where within-",
+          "hasEOL": true
+        },
+        {
+          "str": "subject",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "variability",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "is",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "large",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "compared",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "to",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "between-subject",
+          "hasEOL": true
+        },
+        {
+          "str": "variability.",
+          "hasEOL": true
+        },
+        {
+          "str": "Among",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "the",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "methods",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "that",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "explicitly",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "model",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "the",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        },
+        {
+          "str": "correlation",
+          "hasEOL": true
+        },
+        {
+          "str": "structure, GLMMs consistently better controlled for type 1 error",
+          "hasEOL": true
+        },
+        {
+          "str": "rate than GEE1 models. Here, GEE1 exhibited elevated type 1",
+          "hasEOL": true
+        },
+        {
+          "str": "error rates for any number of subsamples until the number of",
+          "hasEOL": true
+        },
+        {
+          "str": "independent",
+          "hasEOL": false
+        },
+        {
+          "str": " ",
+          "hasEOL": false
+        }
+      ]
+    }
+  ]
+}

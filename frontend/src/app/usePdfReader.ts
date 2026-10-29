@@ -5,7 +5,7 @@ import * as pdfjsLib from "pdfjs-dist/build/pdf.mjs";
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 import { useSyncedRef } from "../hooks/useSyncedRef";
-import { readTextFromPdfItems, updateCanvasAndLayersSize } from "../pdf/pdf-layer";
+import { buildPdfPageText, updateCanvasAndLayersSize } from "../pdf/pdf-layer";
 import type { OutlineItem } from "../types/types";
 import { clamp } from "../utils/main-utils";
 import { DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM } from "./app-types";
@@ -91,6 +91,7 @@ export function usePdfReader(params: PdfReaderParams) {
   const loadingTaskRef = useRef<PdfLoadingTask | null>(null);
   const activeRenderTaskRef = useRef<CancellableRenderTask | null>(null);
   const activeTextLayerRef = useRef<pdfjsLib.TextLayer | null>(null);
+  const pageTextBoundariesRef = useRef(new Map<number, ReadonlySet<number>>());
 
   const { pageTextCacheRef, pageCacheRef, disposeBitmap, clearPageCache, setPageCacheEntry } =
     usePageCache();
@@ -162,6 +163,7 @@ export function usePdfReader(params: PdfReaderParams) {
     setPdfDoc(null);
 
     pageTextCacheRef.current.clear();
+    pageTextBoundariesRef.current.clear();
     clearPageCache();
     clearViewerDom(keepCanvas);
     return generation;
@@ -178,6 +180,13 @@ export function usePdfReader(params: PdfReaderParams) {
     setLoadingCount(0);
     setStageLoadingLabel("Loading PDF...");
     followsWidthRef.current = true;
+  }
+
+  function cachePageText(pageNumber: number, items: Parameters<typeof buildPdfPageText>[0]) {
+    const model = buildPdfPageText(items);
+    pageTextCacheRef.current.set(pageNumber, model.text);
+    pageTextBoundariesRef.current.set(pageNumber, model.optionalWhitespace);
+    return model;
   }
 
   async function ensurePageText(targetPage: number, doc?: PDFDocumentProxy): Promise<string> {
@@ -198,9 +207,7 @@ export function usePdfReader(params: PdfReaderParams) {
     if (!isCurrentDocument(generation, activeDoc)) {
       return "";
     }
-    const text = readTextFromPdfItems(textContent.items);
-    pageTextCacheRef.current.set(targetPage, text);
-    return text;
+    return cachePageText(targetPage, textContent.items).text;
   }
 
   async function renderPage(
@@ -333,19 +340,17 @@ export function usePdfReader(params: PdfReaderParams) {
       return;
     }
 
-    let textCursor = 0;
+    const textModel = cachePageText(pageNumber, textContent.items);
     for (let i = 0; i < pdfTextLayer.textDivs.length; i++) {
       const div = pdfTextLayer.textDivs[i];
       const str = pdfTextLayer.textContentItemsStr[i] ?? "";
       div.dataset.content = str;
-      div.dataset.start = String(textCursor);
-      div.dataset.end = String(textCursor + str.length);
-      textCursor += str.length + 1;
+      div.dataset.start = String(textModel.spans[i].start);
+      div.dataset.end = String(textModel.spans[i].end);
     }
     if (isStale()) {
       return;
     }
-    pageTextCacheRef.current.set(pageNumber, readTextFromPdfItems(textContent.items));
 
     // Canvas, text and annotation geometry commit together, after the last
     // ownership check. A superseded render can never paint into a newer paper.
@@ -431,7 +436,7 @@ export function usePdfReader(params: PdfReaderParams) {
     }
     setPageCacheEntry(pageNumber, { bitmap, textContent, viewport, zoom: activeZoom });
     if (!pageTextCacheRef.current.has(pageNumber)) {
-      pageTextCacheRef.current.set(pageNumber, readTextFromPdfItems(textContent.items));
+      cachePageText(pageNumber, textContent.items);
     }
   }
 
@@ -554,6 +559,7 @@ export function usePdfReader(params: PdfReaderParams) {
         setPdfDoc(doc);
         pdfDocRef.current = doc;
         pageTextCacheRef.current.clear();
+        pageTextBoundariesRef.current.clear();
         clearPageCache();
         // Outline resolution is independent of showing the first page.
         void buildOutline(doc, generation).catch(() => {});
@@ -768,6 +774,7 @@ export function usePdfReader(params: PdfReaderParams) {
     loadingCount,
     stageLoadingLabel,
     pageTextCacheRef,
+    pageTextBoundariesRef,
     withStageLoading,
     ensurePageText,
     renderPage,

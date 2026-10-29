@@ -1,6 +1,8 @@
 import { clamp } from "../utils/main-utils";
 import type { PendingSelection } from "../app/app-types";
 import type { Annotation, NormalizedRect, TextAnchor } from "../types/types";
+import { resolveAnchorOffsets } from "./text-anchor";
+export { resolveAnchorOffsets } from "./text-anchor";
 
 function denormalizeRect(rect: NormalizedRect, width: number, height: number): NormalizedRect {
   return {
@@ -23,87 +25,12 @@ function normalizeRectFromClientRect(rect: DOMRect, layerRect: DOMRect): Normali
   };
 }
 
-function normalizedText(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-export function resolveAnchorOffsets(
-  anchor: TextAnchor,
-  pageText: string,
-): { start: number; end: number } | null {
-  const hasRange = typeof anchor.start === "number" && typeof anchor.end === "number";
-  const quote = normalizedText(anchor.quote);
-  if (hasRange) {
-    const start = Number(anchor.start);
-    const end = Number(anchor.end);
-    if (
-      Number.isInteger(start) &&
-      Number.isInteger(end) &&
-      start >= 0 &&
-      end > start &&
-      end <= pageText.length
-    ) {
-      const candidate = pageText.slice(start, end);
-      if (!quote || normalizedText(candidate) === quote) {
-        return { start, end };
-      }
-    }
-  }
-
-  if (!quote) {
-    return null;
-  }
-
-  // Keep a map back to the original text so whitespace normalization never
-  // moves the DOM range to another passage.
-  const positions: Array<{ start: number; end: number }> = [];
-  let normalized = "";
-  for (const match of pageText.matchAll(/\S+|\s+/g)) {
-    const start = match.index;
-    if (/^\s/.test(match[0])) {
-      if (normalized.length > 0) {
-        normalized += " ";
-        positions.push({ start, end: start + match[0].length });
-      }
-    } else {
-      normalized += match[0];
-      for (let offset = 0; offset < match[0].length; offset += 1) {
-        positions.push({ start: start + offset, end: start + offset + 1 });
-      }
-    }
-  }
-  const hits: Array<{ start: number; end: number }> = [];
-  let cursor = 0;
-  while (cursor <= normalized.length) {
-    const hit = normalized.indexOf(quote, cursor);
-    if (hit === -1) {
-      break;
-    }
-    const start = positions[hit].start;
-    const end = positions[hit + quote.length - 1].end;
-    if (
-      (!anchor.prefix ||
-        normalizedText(pageText.slice(0, start)).endsWith(normalizedText(anchor.prefix))) &&
-      (!anchor.suffix ||
-        normalizedText(pageText.slice(end)).startsWith(normalizedText(anchor.suffix)))
-    ) {
-      hits.push({ start, end });
-    }
-    cursor = hit + 1;
-  }
-
-  if (hits.length === 1) {
-    return { start: hits[0].start, end: hits[0].end };
-  }
-
-  return null;
-}
-
 function annotationRectsFromAnchor(
   annotation: Annotation,
   page: number,
   pageTextCache: Map<number, string>,
   textLayer: HTMLDivElement,
+  boundaries?: ReadonlySet<number>,
 ): NormalizedRect[] {
   if (annotation.page !== page) {
     return [];
@@ -119,6 +46,7 @@ function annotationRectsFromAnchor(
       suffix: "",
     },
     pageText,
+    boundaries,
   );
   if (!offsets || offsets.end <= offsets.start) {
     return [];
@@ -185,8 +113,15 @@ function annotationRects(
   page: number,
   pageTextCache: Map<number, string>,
   textLayer: HTMLDivElement,
+  boundaries?: ReadonlySet<number>,
 ): NormalizedRect[] {
-  const anchored = annotationRectsFromAnchor(annotation, page, pageTextCache, textLayer);
+  const anchored = annotationRectsFromAnchor(
+    annotation,
+    page,
+    pageTextCache,
+    textLayer,
+    boundaries,
+  );
   if (anchored.length > 0) {
     return anchored;
   }
@@ -327,6 +262,7 @@ interface RenderLayerParams {
   page: number;
   selectedAnnotationId: string | null;
   pageTextCache: Map<number, string>;
+  pageTextBoundaries?: Map<number, ReadonlySet<number>>;
   onSelectAnnotation: (annotationId: string) => void;
 }
 
@@ -338,6 +274,7 @@ export function renderAnnotationLayer(params: RenderLayerParams): void {
     page,
     selectedAnnotationId,
     pageTextCache,
+    pageTextBoundaries,
     onSelectAnnotation,
   } = params;
 
@@ -349,7 +286,13 @@ export function renderAnnotationLayer(params: RenderLayerParams): void {
     if (annotation.page !== page) {
       continue;
     }
-    for (const rect of annotationRects(annotation, page, pageTextCache, textLayer)) {
+    for (const rect of annotationRects(
+      annotation,
+      page,
+      pageTextCache,
+      textLayer,
+      pageTextBoundaries?.get(page),
+    )) {
       const realRect = denormalizeRect(rect, width, height);
       const mark = document.createElement("div");
       mark.className = `annotation-mark ${annotation.type}`;

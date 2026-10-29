@@ -164,7 +164,17 @@ export function usePaperSession(params: PaperSessionParams) {
       return false;
     }
     if (options.passage) {
-      await focusPassage(options.passage.annotation, () => isCurrentTransition(transitionId));
+      try {
+        await focusPassage(options.passage.annotation, () => isCurrentTransition(transitionId));
+      } catch (error) {
+        if (!isCurrentTransition(transitionId)) return false;
+        // The source document is already loaded and verified. A rejected quote
+        // must not turn that successful load into an empty/closed workspace.
+        refreshRecentPapers();
+        rememberSessionInUrl(target.id, true, options.pushHistory);
+        onError(error, "Could not locate this passage in the retained paper");
+        return false;
+      }
       if (!isCurrentTransition(transitionId)) return false;
     }
     refreshRecentPapers();

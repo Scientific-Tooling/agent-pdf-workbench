@@ -163,6 +163,32 @@ it("clears a failed PDF without closing a project-owned session", async () => {
   expect(apiPost).not.toHaveBeenCalled();
 });
 
+it("keeps the verified document and citation URL when its quote cannot be located", async () => {
+  const failure = new Error("Cited quote is missing or ambiguous on this page");
+  vi.mocked(params.focusPassage).mockRejectedValue(failure);
+  vi.mocked(apiGet).mockResolvedValue({
+    session: paper("cited"),
+    document_sha256: "a".repeat(64),
+    annotation: { page: 3, quote: "missing" },
+  });
+  const query = `?session_id=cited&document_sha256=${"a".repeat(64)}&annotation_id=ann_1&page=3&passage_sha256=${"b".repeat(64)}`;
+  await act(async () => {
+    window.history.replaceState({}, "", `/${query}`);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  expect(model.session?.id).toBe("cited");
+  expect(model.switching).toBe(false);
+  expect(params.openDocument).toHaveBeenCalledWith(
+    expect.objectContaining({ page: 3, expectedSha256: "a".repeat(64) }),
+  );
+  expect(params.loadWorkspaceFor).toHaveBeenCalledWith("cited");
+  expect(params.resetViewer).not.toHaveBeenCalled();
+  expect(apiPost).not.toHaveBeenCalled();
+  expect(params.onError).toHaveBeenCalledWith(failure, expect.any(String));
+  expect(window.location.search).toBe(query);
+  expect(params.setStatus).not.toHaveBeenCalledWith("passage ready — page 3");
+});
+
 it("ignores a failed lookup belonging to a superseded switch", async () => {
   let reject!: (error: Error) => void;
   const old = new Promise<PaperSession>((_, fail) => {

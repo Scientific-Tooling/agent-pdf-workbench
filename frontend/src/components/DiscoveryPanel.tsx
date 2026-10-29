@@ -20,6 +20,11 @@ interface Discovery {
   status: string;
   error: string | null;
   candidates: Candidate[];
+  details?: {
+    total?: number;
+    query_translation?: string | null;
+    warnings?: Record<string, string | string[]>;
+  };
   candidate_changes?: {
     added: string[];
     changed: string[];
@@ -182,6 +187,12 @@ export function DiscoveryPanel({
             <button className="primary-btn">Find candidate papers</button>
           </fieldset>
         </form>
+        {mode === "search" && provider === "pubmed" && (
+          <p className="muted">
+            PubMed may expand your terms. Inspect its search details below; use specific terms with
+            [Title/Abstract] to narrow the search, or look up a known DOI or PMID.
+          </p>
+        )}
         <label>
           Saved discovery
           <select
@@ -221,6 +232,25 @@ export function DiscoveryPanel({
               <small>Retrieved {run.retrieved_at}</small>
             </p>
             {run.error && <p className="notice">{run.error}</p>}
+            {run.details && (
+              <details>
+                <summary>Search details from {run.provider}</summary>
+                {run.details.total !== undefined && (
+                  <p>
+                    Showing {run.candidates.length} of {run.details.total} results in provider
+                    order.
+                  </p>
+                )}
+                {run.details.query_translation && (
+                  <p>Query used by PubMed: {run.details.query_translation}</p>
+                )}
+                {Object.entries(run.details.warnings ?? {}).map(([kind, warnings]) => (
+                  <p key={kind} className="notice">
+                    {Array.isArray(warnings) ? warnings.join("; ") : warnings}
+                  </p>
+                ))}
+              </details>
+            )}
             {run.status === "complete" && (
               <button
                 className="secondary-btn"

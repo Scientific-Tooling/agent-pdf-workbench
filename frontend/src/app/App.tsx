@@ -117,6 +117,7 @@ export function App() {
     loadingCount,
     stageLoadingLabel,
     pageTextCacheRef,
+    pageTextBoundariesRef,
     withStageLoading,
     ensurePageText,
     renderPage,
@@ -248,7 +249,10 @@ export function App() {
         prefix: "",
         suffix: "",
       };
-      if (!annotation.quote.trim() || !resolveAnchorOffsets(anchor, text)) {
+      if (
+        !annotation.quote.trim() ||
+        !resolveAnchorOffsets(anchor, text, pageTextBoundariesRef.current.get(annotation.page))
+      ) {
         throw new Error(
           "Cited quote is missing or ambiguous on this page. Inspect the retained source and repair the annotation anchor.",
         );
@@ -468,6 +472,7 @@ export function App() {
       page,
       selectedAnnotationId,
       pageTextCache: pageTextCacheRef.current,
+      pageTextBoundaries: pageTextBoundariesRef.current,
       onSelectAnnotation: setSelectedAnnotationId,
     });
 
@@ -478,7 +483,14 @@ export function App() {
       // not scroll the page under the reader's cursor.
       scrollIntoStageView(stage, selectedMark);
     }
-  }, [annotations, page, pageTextCacheRef, selectedAnnotationId, setSelectedAnnotationId]);
+  }, [
+    annotations,
+    page,
+    pageTextCacheRef,
+    pageTextBoundariesRef,
+    selectedAnnotationId,
+    setSelectedAnnotationId,
+  ]);
 
   useGlobalWorkspaceShortcuts({
     quickAnnotatorRef,

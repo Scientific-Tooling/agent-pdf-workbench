@@ -124,3 +124,23 @@ it("discards another session's pending candidate list", async () => {
   await act(async () => resolve(listing));
   expect(container.textContent).not.toContain("Frozen title");
 });
+
+it("shows the retained provider translation and warnings without changing the query", async () => {
+  vi.mocked(apiGet).mockResolvedValue({
+    ...listing,
+    discovery: {
+      ...discovery,
+      provider: "pubmed",
+      details: {
+        total: 917,
+        query_translation: '"single person"[MeSH Terms] AND "DNA replication"[MeSH Terms]',
+        warnings: { quotedphrasesnotfound: ["biological replicates"] },
+      },
+    },
+  });
+  await mount();
+  expect(container.textContent).toContain("Showing 1 of 917 results in provider order.");
+  expect(container.textContent).toContain('"DNA replication"[MeSH Terms]');
+  expect(container.textContent).toContain("biological replicates");
+  expect(apiPost).not.toHaveBeenCalled();
+});

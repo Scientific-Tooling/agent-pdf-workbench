@@ -1,8 +1,34 @@
 import type { PageViewport, TextItem, TextMarkedContent } from "../types/pdfjs-types";
 
+export interface PdfPageText {
+  text: string;
+  spans: Array<{ start: number; end: number }>;
+  optionalWhitespace: ReadonlySet<number>;
+}
+
+export function buildPdfPageText(items: Array<TextItem | TextMarkedContent>): PdfPageText {
+  // Retain the original offset space for saved anchors. Separators we insert
+  // between PDF fragments are different from actual word spaces/end-of-lines.
+  let text = "";
+  const spans: PdfPageText["spans"] = [];
+  const optionalWhitespace = new Set<number>();
+  let previous: TextItem | undefined;
+  for (const item of items) {
+    if (!("str" in item)) continue;
+    if (previous) {
+      if (!previous.hasEOL) optionalWhitespace.add(text.length);
+      text += " ";
+    }
+    const start = text.length;
+    text += item.str;
+    spans.push({ start, end: text.length });
+    previous = item;
+  }
+  return { text, spans, optionalWhitespace };
+}
+
 export function readTextFromPdfItems(items: Array<TextItem | TextMarkedContent>): string {
-  // Marked-content entries carry structure, not text, and contribute nothing.
-  return items.flatMap((item) => ("str" in item ? [item.str] : [])).join(" ");
+  return buildPdfPageText(items).text;
 }
 
 export function updateCanvasAndLayersSize(

@@ -125,3 +125,51 @@ it("a delayed metadata save stays with its original paper after switching", asyn
   expect(recordAction).toHaveBeenCalledTimes(2);
   expect(showToast).not.toHaveBeenCalled();
 });
+
+it("saves a passage under its selected page even after the reading position changes", async () => {
+  vi.mocked(apiPost).mockImplementationOnce(async (_path, payload) => ({
+    annotation: (payload as { annotation: Annotation }).annotation,
+  }));
+  await act(async () =>
+    commands.createAnnotation(
+      "highlight",
+      {
+        page: 2,
+        quote: "Passage on the neighboring page",
+        anchor: {
+          quote: "Passage on the neighboring page",
+          start: 0,
+          end: 31,
+          prefix: "",
+          suffix: "",
+        },
+        rects: [{ x: 0.1, y: 0.2, width: 0.5, height: 0.02 }],
+        anchorX: 10,
+        anchorY: 20,
+      },
+      "",
+    ),
+  );
+  expect(apiPost).toHaveBeenCalledWith(
+    "/api/annotations",
+    expect.objectContaining({
+      session_id: "original",
+      annotation: expect.objectContaining({ page: 2 }),
+    }),
+  );
+  expect(recordAction).toHaveBeenCalledWith(
+    "annotation_upsert",
+    expect.anything(),
+    2,
+    "Passage on the neighboring page",
+    "original",
+  );
+});
+
+it("treats returning to the same highlight as a new passage navigation", async () => {
+  await act(async () => commands.jumpToAnnotation("first"));
+  const firstNavigation = commands.annotationNavigation;
+  await act(async () => commands.jumpToAnnotation("first"));
+  expect(commands.annotationNavigation).toBe(firstNavigation + 1);
+  expect(data.selectedAnnotationId).toBe("first");
+});

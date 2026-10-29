@@ -47,6 +47,8 @@
   --scrim: rgba(15, 23, 42, 0.35);
   --focus-ring: rgba(79, 70, 229, 0.15);
   --page-shadow: 0 4px 20px rgba(15, 23, 42, 0.08);
+  --scrollbar-thumb: color-mix(in srgb, var(--text-secondary) 30%, transparent);
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--text-secondary) 60%, transparent);
 
   /* Annotations */
   --highlight-color: rgba(253, 224, 71, 0.4); /* yellow-300 */
@@ -207,6 +209,18 @@
 
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+/* Keep native scrolling and stable gutters; emphasize the thumb on interaction. */
+*:where(:hover, :focus-visible) {
+  scrollbar-color: var(--scrollbar-thumb-hover) transparent;
+}
+@media (forced-colors: active) {
+  * {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
 }
 body {
   margin: 0;
@@ -810,10 +824,40 @@ pre {
   min-height: 0;
   position: relative;
   overflow: auto;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
+  display: block;
   padding: 24px;
+}
+
+.pdf-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  min-width: 100%;
+}
+
+.pdf-document-container[aria-busy="true"]::after,
+.pdf-document-container[data-error]::after {
+  content: "Page " attr(data-page);
+  position: absolute;
+  inset: 24px;
+  color: #667085;
+  font-size: 13px;
+}
+
+.pdf-document-container[data-error]::after {
+  content: attr(data-error);
+}
+
+.reader-render-error {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  padding: 8px 12px;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  z-index: 5;
 }
 .pdf-document-container {
   position: relative;

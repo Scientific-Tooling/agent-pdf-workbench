@@ -56,6 +56,13 @@ room for the paper. **Focus** hides both sidebars; **Exit focus** restores them.
 The Notes tab lets you link a thought to readable highlight quotations. Technical
 identifiers, activity logs and exports stay available in expandable sections.
 
+Scroll continuously through the paper: the thin scrollbar tracks the entire PDF,
+and the page number follows your reading position. Page buttons, the page field,
+outline, search results and saved highlights still jump directly to their targets.
+**Fit width** fits the widest page in the document; manual zoom preserves your
+position within the current page. Only pages near the viewport retain rendered
+canvases and text, keeping long documents from accumulating full-size page images.
+
 The research desk keeps a compact library and evidence pane beside the paper,
 with the full title and any recorded authors, journal and year above the reading
 controls. Open **Find in document** (or press `f` / Ctrl+F) when needed; Escape

@@ -77,6 +77,9 @@ export function App() {
   });
 
   const pdfStageRef = useRef<HTMLDivElement | null>(null);
+  const pdfPagesRef = useRef<HTMLDivElement | null>(null);
+  const focusedSearchRef = useRef("");
+  const focusedAnnotationRef = useRef("");
   const pdfCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const textLayerRef = useRef<HTMLDivElement | null>(null);
   const annotationLayerRef = useRef<HTMLDivElement | null>(null);
@@ -129,9 +132,14 @@ export function App() {
     applyZoom,
     fitWidth,
     refitToStage,
-    handleStageWheel,
+    handleStageScroll,
+    getRenderedPages,
+    getSelectionPage,
+    layersRevision,
+    renderError,
   } = usePdfReader({
     pdfStageRef,
+    pdfPagesRef,
     pdfCanvasRef,
     textLayerRef,
     annotationLayerRef,
@@ -150,6 +158,7 @@ export function App() {
     searchQuery,
     searchResults,
     searchCursor,
+    searchNavigation,
     searchInfoText,
     runSearch,
     jumpToSearchResult,
@@ -165,8 +174,8 @@ export function App() {
 
   // Subscribe once and dispatch through a ref, so the listener is not swapped
   // on every render.
-  const stageWheelRef = useSyncedRef((event: WheelEvent) => {
-    if (!switching) handleStageWheel(event);
+  const stageScrollRef = useSyncedRef(() => {
+    if (!switching) handleStageScroll();
   });
   const refitToStageRef = useSyncedRef(refitToStage);
 
@@ -215,10 +224,10 @@ export function App() {
     if (!stage) {
       return;
     }
-    const listener = (event: WheelEvent): void => stageWheelRef.current(event);
-    stage.addEventListener("wheel", listener, { passive: true });
-    return () => stage.removeEventListener("wheel", listener);
-  }, [stageWheelRef]);
+    const listener = (): void => stageScrollRef.current();
+    stage.addEventListener("scroll", listener, { passive: true });
+    return () => stage.removeEventListener("scroll", listener);
+  }, [stageScrollRef]);
   // Written synchronously when a paper opens, because reading progress is
   // persisted from inside the same call stack that sets the React state.
 
@@ -311,6 +320,7 @@ export function App() {
     createAnnotation,
     updateSelectedAnnotationMeta,
     jumpToAnnotation,
+    annotationNavigation,
     deleteSelectedAnnotation,
     saveNote,
     deleteSelectedNote,
@@ -354,8 +364,12 @@ export function App() {
       setQuickVisible(true);
       return;
     }
-    const left = clamp(selection.anchorX + 8, 8, Math.max(8, stage.clientWidth - 320));
-    const top = clamp(selection.anchorY - 56, 8, Math.max(8, stage.clientHeight - 120));
+    const left =
+      stage.scrollLeft +
+      clamp(selection.anchorX - stage.scrollLeft + 8, 8, Math.max(8, stage.clientWidth - 320));
+    const top =
+      stage.scrollTop +
+      clamp(selection.anchorY - stage.scrollTop - 56, 8, Math.max(8, stage.clientHeight - 120));
     setPendingSelection(selection);
     setQuickLeft(left);
     setQuickTop(top);
@@ -400,15 +414,15 @@ export function App() {
   }
 
   function getSelectionRectsAndQuote(clearSelection = true): PendingSelection | null {
-    const textLayer = textLayerRef.current;
+    const frame = getSelectionPage();
     const pdfStage = pdfStageRef.current;
-    if (!textLayer || !pdfStage) {
+    if (!frame || !pdfStage) {
       return null;
     }
     return getSelectionRectsAndQuoteFromDom(
-      textLayer,
+      frame.textLayer,
       pdfStage,
-      pageRef.current,
+      frame.number,
       pageTextCacheRef.current,
       ANCHOR_CONTEXT_CHARS,
       clearSelection,
@@ -439,53 +453,59 @@ export function App() {
     showToast("Markdown export ready", "success");
   }
 
+  // Paint decorations on every rendered page. Scrolling past an old selection
+  // must not pull the reader back to it; only a new navigation intent does that.
   useEffect(() => {
-    const textLayer = textLayerRef.current;
-    if (!textLayer) {
-      return;
+    const key = searchQuery ? `${searchQuery}:${searchCursor}:${searchNavigation}` : "";
+    if (!key) focusedSearchRef.current = "";
+    for (const frame of getRenderedPages()) {
+      applySearchHighlightsToCurrentPageInDom({
+        textLayer: frame.textLayer,
+        query: searchQuery,
+        results: searchResults,
+        cursor: searchCursor,
+        page: frame.number,
+      });
+      const hit = frame.textLayer.querySelector<HTMLElement>(".current-hit");
+      if (hit && pdfStageRef.current && focusedSearchRef.current !== key) {
+        focusedSearchRef.current = key;
+        scrollIntoStageView(pdfStageRef.current, hit);
+      }
     }
-    applySearchHighlightsToCurrentPageInDom({
-      textLayer,
-      query: searchQuery,
-      results: searchResults,
-      cursor: searchCursor,
-      page,
-    });
-
-    const currentHit = textLayer.querySelector<HTMLElement>(".current-hit");
-    const stage = pdfStageRef.current;
-    if (currentHit && stage) {
-      scrollIntoStageView(stage, currentHit);
-    }
-  }, [page, searchCursor, searchQuery, searchResults]);
+  }, [
+    getRenderedPages,
+    layersRevision,
+    searchCursor,
+    searchNavigation,
+    searchQuery,
+    searchResults,
+  ]);
 
   useEffect(() => {
-    const textLayer = textLayerRef.current;
-    const annotationLayer = annotationLayerRef.current;
-    if (!textLayer || !annotationLayer) {
-      return;
-    }
-    renderAnnotationLayerFromDom({
-      annotationLayer,
-      textLayer,
-      annotations,
-      page,
-      selectedAnnotationId,
-      pageTextCache: pageTextCacheRef.current,
-      pageTextBoundaries: pageTextBoundariesRef.current,
-      onSelectAnnotation: setSelectedAnnotationId,
-    });
-
-    const selectedMark = annotationLayer.querySelector<HTMLElement>(".annotation-mark.selected");
-    const stage = pdfStageRef.current;
-    if (selectedMark && stage) {
-      // Only moves when the mark is off screen, so clicking a visible mark does
-      // not scroll the page under the reader's cursor.
-      scrollIntoStageView(stage, selectedMark);
+    const key = selectedAnnotationId ? `${selectedAnnotationId}:${annotationNavigation}` : "";
+    if (!key) focusedAnnotationRef.current = "";
+    for (const frame of getRenderedPages()) {
+      renderAnnotationLayerFromDom({
+        annotationLayer: frame.annotationLayer,
+        textLayer: frame.textLayer,
+        annotations,
+        page: frame.number,
+        selectedAnnotationId,
+        pageTextCache: pageTextCacheRef.current,
+        pageTextBoundaries: pageTextBoundariesRef.current,
+        onSelectAnnotation: setSelectedAnnotationId,
+      });
+      const mark = frame.annotationLayer.querySelector<HTMLElement>(".annotation-mark.selected");
+      if (mark && pdfStageRef.current && focusedAnnotationRef.current !== key) {
+        focusedAnnotationRef.current = key;
+        scrollIntoStageView(pdfStageRef.current, mark);
+      }
     }
   }, [
     annotations,
-    page,
+    annotationNavigation,
+    getRenderedPages,
+    layersRevision,
     pageTextCacheRef,
     pageTextBoundariesRef,
     selectedAnnotationId,
@@ -494,7 +514,7 @@ export function App() {
 
   useGlobalWorkspaceShortcuts({
     quickAnnotatorRef,
-    textLayerRef,
+    textLayerRef: pdfPagesRef,
     onFocusSearch: focusDocumentSearch,
     onHideQuickAnnotator: hideQuickAnnotator,
     onGoNextPage: async () => {
@@ -511,7 +531,12 @@ export function App() {
     if (!selectedText) {
       return;
     }
-    await recordAction("copy", { chars: selectedText.length }, pageRef.current, selectedText);
+    await recordAction(
+      "copy",
+      { chars: selectedText.length },
+      getSelectionPage()?.number ?? null,
+      selectedText,
+    );
   }
 
   function handleTextLayerMouseUp(): void {
@@ -637,9 +662,8 @@ export function App() {
           searchInputRef={searchInputRef}
           toolbarRef={toolbarRef}
           pdfStageRef={pdfStageRef}
-          pdfCanvasRef={pdfCanvasRef}
-          textLayerRef={textLayerRef}
-          annotationLayerRef={annotationLayerRef}
+          pdfPagesRef={pdfPagesRef}
+          renderError={renderError}
           quickAnnotatorRef={quickAnnotatorRef}
           onPageJumpInputChange={setPageJumpInput}
           onSearchInputValueChange={setSearchInputValue}

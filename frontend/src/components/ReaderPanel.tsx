@@ -32,9 +32,8 @@ export interface ReaderPanelProps {
   searchInputRef: RefObject<HTMLInputElement | null>;
   toolbarRef: RefObject<HTMLDivElement | null>;
   pdfStageRef: RefObject<HTMLDivElement | null>;
-  pdfCanvasRef: RefObject<HTMLCanvasElement | null>;
-  textLayerRef: RefObject<HTMLDivElement | null>;
-  annotationLayerRef: RefObject<HTMLDivElement | null>;
+  pdfPagesRef: RefObject<HTMLDivElement | null>;
+  renderError: string;
   quickAnnotatorRef: RefObject<HTMLDivElement | null>;
   onPageJumpInputChange: (value: string) => void;
   onSearchInputValueChange: (value: string) => void;
@@ -71,9 +70,7 @@ export function ReaderPanel(props: ReaderPanelProps) {
     quickCommentInput,
     hasPendingSelection,
     pdfStageRef,
-    pdfCanvasRef,
-    textLayerRef,
-    annotationLayerRef,
+    pdfPagesRef,
     quickAnnotatorRef,
     onQuickCommentInputChange,
     onTextLayerCopy,
@@ -106,28 +103,19 @@ export function ReaderPanel(props: ReaderPanelProps) {
             </div>
           )}
           <div
-            className="pdf-document-container"
+            ref={pdfPagesRef}
+            className="pdf-pages"
             inert={props.switching}
             aria-hidden={props.switching}
-          >
-            <canvas id="pdfCanvas" ref={pdfCanvasRef} />
-            <div
-              id="textLayer"
-              ref={textLayerRef}
-              className="text-layer"
-              onCopy={async () => {
-                try {
-                  await onTextLayerCopy();
-                } catch (error) {
-                  onError(error, "Failed to record copy action");
-                }
-              }}
-              onMouseUp={() => {
-                onTextLayerMouseUp();
-              }}
-            />
-            <div id="annotationLayer" ref={annotationLayerRef} className="annotation-layer" />
-          </div>
+            onCopy={async () => {
+              try {
+                await onTextLayerCopy();
+              } catch (error) {
+                onError(error, "Failed to record copy action");
+              }
+            }}
+            onMouseUp={onTextLayerMouseUp}
+          />
           <div
             id="quickAnnotator"
             ref={quickAnnotatorRef}
@@ -185,6 +173,11 @@ export function ReaderPanel(props: ReaderPanelProps) {
             </div>
           </div>
         </div>
+        {props.renderError && (
+          <div className="reader-render-error" role="alert">
+            {props.renderError}
+          </div>
+        )}
         <div
           id="stageLoading"
           role="status"

@@ -247,6 +247,7 @@ export function getSelectionRectsAndQuote(
   const stageRect = pdfStage.getBoundingClientRect();
 
   return {
+    page,
     rects,
     quote,
     anchor,

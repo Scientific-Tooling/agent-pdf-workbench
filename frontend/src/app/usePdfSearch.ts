@@ -25,6 +25,7 @@ export function usePdfSearch(params: PdfSearchParams) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchCursor, setSearchCursor] = useState(0);
+  const [searchNavigation, setSearchNavigation] = useState(0);
   const searchRunRef = useRef(0);
 
   const searchInfoText = useMemo(() => {
@@ -65,6 +66,7 @@ export function usePdfSearch(params: PdfSearchParams) {
         return;
       }
     }
+    setSearchNavigation((value) => value + 1);
   }
 
   function collectPageMatches(pageNumber: number, text: string, query: string): SearchResult[] {
@@ -145,6 +147,7 @@ export function usePdfSearch(params: PdfSearchParams) {
     searchQuery,
     searchResults,
     searchCursor,
+    searchNavigation,
     searchInfoText,
     runSearch,
     jumpToSearchResult,

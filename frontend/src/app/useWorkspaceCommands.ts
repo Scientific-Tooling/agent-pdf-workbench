@@ -72,6 +72,7 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
   const [noteTitleInput, setNoteTitleInput] = useState("");
   const [noteLinkedIdsInput, setNoteLinkedIdsInput] = useState("");
   const [noteMarkdownInput, setNoteMarkdownInput] = useState("");
+  const [annotationNavigation, setAnnotationNavigation] = useState(0);
 
   useEffect(() => {
     if (!selectedAnnotation) {
@@ -138,7 +139,7 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
     const now = nowIso();
     const annotation: Annotation = {
       id: uid("ann"),
-      page: pageRef.current,
+      page: selected.page,
       type,
       quote: selected.quote,
       anchor: selected.anchor,
@@ -244,6 +245,7 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
   }
 
   async function jumpToAnnotation(annotationId: string): Promise<void> {
+    const activeSession = sessionRef.current;
     const annotation = annotations.find((item) => item.id === annotationId);
     if (!annotation) {
       return;
@@ -251,7 +253,9 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
     if (pageRef.current !== annotation.page) {
       await renderPage(annotation.page, true);
     }
+    if (sessionRef.current !== activeSession) return;
     setSelectedAnnotationId(annotation.id);
+    setAnnotationNavigation((value) => value + 1);
   }
 
   async function deleteSelectedAnnotation(): Promise<void> {
@@ -341,6 +345,7 @@ export function useWorkspaceCommands(params: WorkspaceCommandsParams) {
     createAnnotation,
     updateSelectedAnnotationMeta,
     jumpToAnnotation,
+    annotationNavigation,
     deleteSelectedAnnotation,
     saveNote,
     deleteSelectedNote,

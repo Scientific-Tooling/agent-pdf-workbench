@@ -7,6 +7,7 @@ export interface PdfOutlineNode {
 }
 
 export interface PendingSelection {
+  page: number;
   rects: NormalizedRect[];
   quote: string;
   anchor: TextAnchor;

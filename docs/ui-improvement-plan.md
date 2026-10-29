@@ -18,8 +18,9 @@ Source verification, review status, storage and import semantics are unchanged.
 Coverage includes tab keyboard navigation and draft retention, pointer/keyboard
 resizing, responsive fit, drawer dismissal, light/dark contrast, annotation and
 session races, and the installed sci two-paper highlight-to-brief journey.
-The historical batches below remain a record of the original UI review;
-continuous scrolling is still a separate future improvement.
+The historical batches below remain a record of the original UI review.
+Continuous scrolling was implemented locally on October 29; release validation
+for that renderer change remains separate from the published 0.3.1 redesign.
 
 This plan turns the September 2026 UI review into batched engineering work. It
 covers the reading surface only; API, storage, and agent-facing behaviour are
@@ -250,6 +251,15 @@ Files: `frontend/src/styles.css`, all four components,
 ---
 
 ## Batch 5: Continuous Scrolling Reader
+
+Implementation status (2026-10-29): a continuous column now keeps the full PDF
+extent stable while rendering pages near the viewport. Each page owns its text
+and annotation layers; selections retain their source page independently of the
+toolbar. Fit width uses the widest page, and zoom preserves the current within-page
+position. The native scrollbar measures the whole document. Automated checks cover
+mixed sizes, switching races, selection ownership and bounded rasters/bitmaps across
+30 pages. The packaged local reader was also checked with a real nine-page paper.
+The broader release and sustained browser-memory validation below remain pending.
 
 Problem: the reader renders one page into one canvas and turns pages when the
 stage hits an edge. Papers are read across page boundaries — figures, tables,

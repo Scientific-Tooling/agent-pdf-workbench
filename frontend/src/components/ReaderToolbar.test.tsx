@@ -17,7 +17,7 @@ function Harness() {
   }, [open]);
   useGlobalWorkspaceShortcuts({
     quickAnnotatorRef: props.quickAnnotatorRef,
-    textLayerRef: props.textLayerRef,
+    textLayerRef: props.pdfPagesRef,
     onHideQuickAnnotator: props.onHideQuickAnnotator,
     onGoNextPage: props.onGoNextPage,
     onGoPrevPage: props.onGoPrevPage,
@@ -71,9 +71,8 @@ beforeEach(async () => {
     searchInputRef: createRef(),
     toolbarRef: createRef(),
     pdfStageRef: createRef(),
-    pdfCanvasRef: createRef(),
-    textLayerRef: createRef(),
-    annotationLayerRef: createRef(),
+    pdfPagesRef: createRef(),
+    renderError: "",
     quickAnnotatorRef: createRef(),
     onOpenSearch: vi.fn(),
     onCloseSearch: vi.fn(),

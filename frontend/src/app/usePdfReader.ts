@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 
 import * as pdfjsLib from "pdfjs-dist/build/pdf.mjs";
@@ -12,6 +12,13 @@ import { DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM } from "./app-types";
 import type { PdfOutlineNode } from "./app-types";
 import type { PageViewport, PDFDocumentProxy, TextContent } from "../types/pdfjs-types";
 import { usePageCache } from "./usePageCache";
+import {
+  createDocumentPages,
+  pageAtOffset,
+  releaseDocumentPage,
+  type DocumentPage,
+  type PageSize,
+} from "../pdf/document-pages";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
@@ -19,7 +26,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 const STAGE_GUTTER_PX = 24;
 
 type PdfLoadingTask = ReturnType<typeof pdfjsLib.getDocument>;
-type CancellableRenderTask = { cancel: () => void };
 
 /** What is on screen: captured when the document opens, reported back on render. */
 export interface OpenDocument {
@@ -51,6 +57,7 @@ export interface PdfReaderCallbacks {
 
 interface PdfReaderParams extends PdfReaderCallbacks {
   pdfStageRef: RefObject<HTMLDivElement | null>;
+  pdfPagesRef: RefObject<HTMLDivElement | null>;
   pdfCanvasRef: RefObject<HTMLCanvasElement | null>;
   textLayerRef: RefObject<HTMLDivElement | null>;
   annotationLayerRef: RefObject<HTMLDivElement | null>;
@@ -59,11 +66,11 @@ interface PdfReaderParams extends PdfReaderCallbacks {
 /**
  * Owns the PDF document, page rendering, page/text caches, zoom, and outline.
  *
- * Rendering is the one place in the app where several controls can race, so
- * every render takes a token and a newer render retires an older one.
+ * Page geometry spans the whole PDF. Rasters and text are owned by individual
+ * page frames and retired when their document, zoom, or viewport changes.
  */
 export function usePdfReader(params: PdfReaderParams) {
-  const { pdfStageRef, pdfCanvasRef, textLayerRef, annotationLayerRef } = params;
+  const { pdfStageRef, pdfPagesRef, pdfCanvasRef, textLayerRef, annotationLayerRef } = params;
   const callbacksRef = useSyncedRef<PdfReaderCallbacks>({
     onProgress: params.onProgress,
     onPageChange: params.onPageChange,
@@ -81,7 +88,11 @@ export function usePdfReader(params: PdfReaderParams) {
   const pdfDocRef = useSyncedRef<PDFDocumentProxy | null>(pdfDoc);
   const pageRef = useSyncedRef<number>(page);
   const zoomRef = useSyncedRef<number>(zoom);
-  const isChangingPageRef = useRef(false);
+  const pagesRef = useRef<DocumentPage[]>([]);
+  const sizesRef = useRef<PageSize[]>([]);
+  const [layersRevision, setLayersRevision] = useState(0);
+  const [renderError, setRenderError] = useState("");
+  const lastReportedRef = useRef("");
   const openDocumentRef = useRef<OpenDocument | null>(null);
   // While true the page follows the window width. A manual zoom turns it off;
   // pressing Fit Width turns it back on.
@@ -89,8 +100,6 @@ export function usePdfReader(params: PdfReaderParams) {
   const renderTokenRef = useRef(0);
   const documentGenerationRef = useRef(0);
   const loadingTaskRef = useRef<PdfLoadingTask | null>(null);
-  const activeRenderTaskRef = useRef<CancellableRenderTask | null>(null);
-  const activeTextLayerRef = useRef<pdfjsLib.TextLayer | null>(null);
   const pageTextBoundariesRef = useRef(new Map<number, ReadonlySet<number>>());
 
   const { pageTextCacheRef, pageCacheRef, disposeBitmap, clearPageCache, setPageCacheEntry } =
@@ -112,20 +121,19 @@ export function usePdfReader(params: PdfReaderParams) {
   }
 
   function clearViewerDom(keepCanvas = false): void {
-    const textLayer = textLayerRef.current;
-    const annotationLayer = annotationLayerRef.current;
-    const canvas = pdfCanvasRef.current;
-    if (textLayer) {
-      textLayer.innerHTML = "";
+    for (const frame of pagesRef.current) {
+      frame.revision += 1;
+      frame.cancelRender?.();
+      frame.textLayer.replaceChildren();
+      frame.annotationLayer.replaceChildren();
     }
-    if (annotationLayer) {
-      annotationLayer.innerHTML = "";
-    }
-    if (canvas && !keepCanvas) {
-      canvas.width = 0;
-      canvas.height = 0;
-      canvas.style.width = "0px";
-      canvas.style.height = "0px";
+    pagesRef.current = [];
+    sizesRef.current = [];
+    if (!keepCanvas) {
+      pdfPagesRef.current?.replaceChildren();
+      pdfCanvasRef.current = null;
+      textLayerRef.current = null;
+      annotationLayerRef.current = null;
     }
   }
 
@@ -133,25 +141,11 @@ export function usePdfReader(params: PdfReaderParams) {
     return documentGenerationRef.current === generation && pdfDocRef.current === doc;
   }
 
-  function cancelActiveRender(): void {
-    const renderTask = activeRenderTaskRef.current;
-    activeRenderTaskRef.current = null;
-    try {
-      renderTask?.cancel();
-    } catch {
-      // A render task can already be finished when a newer render retires it.
-    }
-  }
-
   /** Retire every async operation that belongs to the document being replaced. */
   function invalidateDocument(keepCanvas = false): number {
     const generation = documentGenerationRef.current + 1;
     documentGenerationRef.current = generation;
     renderTokenRef.current += 1;
-
-    cancelActiveRender();
-    activeTextLayerRef.current?.cancel();
-    activeTextLayerRef.current = null;
 
     const loadingTask = loadingTaskRef.current;
     loadingTaskRef.current = null;
@@ -166,6 +160,8 @@ export function usePdfReader(params: PdfReaderParams) {
     pageTextBoundariesRef.current.clear();
     clearPageCache();
     clearViewerDom(keepCanvas);
+    lastReportedRef.current = "";
+    setRenderError("");
     return generation;
   }
 
@@ -210,235 +206,334 @@ export function usePdfReader(params: PdfReaderParams) {
     return cachePageText(targetPage, textContent.items).text;
   }
 
-  async function renderPage(
-    pageNumber: number,
-    emitPageChange: boolean,
-    docOverride?: PDFDocumentProxy,
-    generationOverride?: number,
-  ): Promise<void> {
-    const generation = generationOverride ?? documentGenerationRef.current;
-    const activeDoc = docOverride ?? pdfDocRef.current;
-    const canvas = pdfCanvasRef.current;
-    const textLayer = textLayerRef.current;
-    const annotationLayer = annotationLayerRef.current;
-    if (
-      !activeDoc ||
-      !canvas ||
-      !textLayer ||
-      !annotationLayer ||
-      !isCurrentDocument(generation, activeDoc)
-    ) {
-      return;
-    }
-    const activeZoom = zoomRef.current;
-    const cached = pageCacheRef.current.get(pageNumber);
-    const cacheHit = cached !== undefined && Math.abs(cached.zoom - activeZoom) < 0.001;
-
-    // renderPage is reachable from nine controls. Without a token, two
-    // overlapping calls can leave one page on the canvas and another page's
-    // offsets in the text layer, which anchors annotations and copy events to
-    // text that is not on screen.
-    const token = renderTokenRef.current + 1;
-    renderTokenRef.current = token;
+  async function paintPage(frame: DocumentPage): Promise<void> {
+    if (frame.ready) return;
+    if (frame.rendering) return frame.rendering;
+    const generation = documentGenerationRef.current;
+    const activeDoc = pdfDocRef.current;
+    if (!activeDoc) return;
+    const revision = frame.revision;
     const isStale = (): boolean =>
-      renderTokenRef.current !== token || !isCurrentDocument(generation, activeDoc);
-    cancelActiveRender();
-    activeTextLayerRef.current?.cancel();
-    activeTextLayerRef.current = null;
+      !isCurrentDocument(generation, activeDoc) ||
+      frame.revision !== revision ||
+      pagesRef.current[frame.number - 1] !== frame;
+    const { canvas, textLayer, annotationLayer } = frame;
+    const pageNumber = frame.number;
+    const work = async (): Promise<void> => {
+      const activeZoom = zoomRef.current;
+      const cached = pageCacheRef.current.get(pageNumber);
+      const cacheHit = cached !== undefined && Math.abs(cached.zoom - activeZoom) < 0.001;
 
-    let viewport!: PageViewport;
-    let textContent!: TextContent;
-    let pageImage!: CanvasImageSource;
+      let viewport!: PageViewport;
+      let textContent!: TextContent;
+      let pageImage!: CanvasImageSource;
 
-    if (cacheHit) {
-      cached!.lastUsedAt = Date.now();
-      viewport = cached!.viewport;
-      textContent = cached!.textContent;
-      const buffer = document.createElement("canvas");
-      buffer.width = viewport.width;
-      buffer.height = viewport.height;
-      const context = buffer.getContext("2d");
-      if (!context) throw new Error("Cannot initialize 2d canvas context");
-      context.drawImage(cached!.bitmap, 0, 0);
-      pageImage = buffer;
-    } else {
-      await withStageLoading("Rendering page...", async () => {
-        const pdfPage = await activeDoc.getPage(pageNumber);
-        if (isStale()) {
-          return;
-        }
-        const vp = pdfPage.getViewport({ scale: activeZoom });
-        // Render off screen so the visible page is never resized or cleared
-        // before its replacement is complete.
+      if (cacheHit) {
+        cached!.lastUsedAt = Date.now();
+        viewport = cached!.viewport;
+        textContent = cached!.textContent;
         const buffer = document.createElement("canvas");
-        buffer.width = vp.width;
-        buffer.height = vp.height;
+        buffer.width = viewport.width;
+        buffer.height = viewport.height;
         const context = buffer.getContext("2d");
         if (!context) throw new Error("Cannot initialize 2d canvas context");
-        const renderTask = pdfPage.render({ canvas: buffer, canvasContext: context, viewport: vp });
-        activeRenderTaskRef.current = renderTask;
-        try {
-          await renderTask.promise;
-        } catch (error) {
+        context.drawImage(cached!.bitmap, 0, 0);
+        pageImage = buffer;
+      } else {
+        await (async () => {
+          const pdfPage = await activeDoc.getPage(pageNumber);
           if (isStale()) {
             return;
           }
-          throw error;
-        } finally {
-          if (activeRenderTaskRef.current === renderTask) {
-            activeRenderTaskRef.current = null;
+          const vp = pdfPage.getViewport({ scale: activeZoom });
+          // Render off screen so the visible page is never resized or cleared
+          // before its replacement is complete.
+          const buffer = document.createElement("canvas");
+          buffer.width = vp.width;
+          buffer.height = vp.height;
+          const context = buffer.getContext("2d");
+          if (!context) throw new Error("Cannot initialize 2d canvas context");
+          const renderTask = pdfPage.render({
+            canvas: buffer,
+            canvasContext: context,
+            viewport: vp,
+          });
+          frame.cancelRender = () => renderTask.cancel();
+          try {
+            await renderTask.promise;
+          } catch (error) {
+            if (isStale()) {
+              return;
+            }
+            throw error;
+          } finally {
+            if (!isStale()) frame.cancelRender = undefined;
           }
-        }
-        if (isStale()) {
-          return;
-        }
-        const tc = await pdfPage.getTextContent();
-        if (isStale()) {
-          return;
-        }
-        const bitmap = await createImageBitmap(buffer);
-        if (isStale()) {
-          disposeBitmap(bitmap);
-          return;
-        }
-        setPageCacheEntry(pageNumber, { bitmap, textContent: tc, viewport: vp, zoom: activeZoom });
-        viewport = vp;
-        textContent = tc;
-        pageImage = buffer;
-      });
-    }
+          if (isStale()) {
+            return;
+          }
+          const tc = await pdfPage.getTextContent();
+          if (isStale()) {
+            return;
+          }
+          const bitmap = await createImageBitmap(buffer);
+          if (isStale()) {
+            disposeBitmap(bitmap);
+            return;
+          }
+          setPageCacheEntry(pageNumber, {
+            bitmap,
+            textContent: tc,
+            viewport: vp,
+            zoom: activeZoom,
+          });
+          viewport = vp;
+          textContent = tc;
+          pageImage = buffer;
+        })();
+      }
 
-    if (isStale()) {
-      return;
-    }
-
-    const nextTextLayer = document.createElement("div");
-    nextTextLayer.className = "text-layer";
-    nextTextLayer.style.setProperty(
-      "--total-scale-factor",
-      String(viewport.scale * viewport.userUnit),
-    );
-    const pdfTextLayer = new pdfjsLib.TextLayer({
-      textContentSource: textContent,
-      container: nextTextLayer,
-      viewport,
-    });
-    activeTextLayerRef.current = pdfTextLayer;
-    try {
-      await pdfTextLayer.render();
-    } catch (error) {
       if (isStale()) {
         return;
       }
-      throw error;
-    } finally {
-      if (activeTextLayerRef.current === pdfTextLayer) {
-        activeTextLayerRef.current = null;
-      }
-    }
-    if (isStale()) {
-      return;
-    }
 
-    const textModel = cachePageText(pageNumber, textContent.items);
-    for (let i = 0; i < pdfTextLayer.textDivs.length; i++) {
-      const div = pdfTextLayer.textDivs[i];
-      const str = pdfTextLayer.textContentItemsStr[i] ?? "";
-      div.dataset.content = str;
-      div.dataset.start = String(textModel.spans[i].start);
-      div.dataset.end = String(textModel.spans[i].end);
-    }
-    if (isStale()) {
-      return;
-    }
-
-    // Canvas, text and annotation geometry commit together, after the last
-    // ownership check. A superseded render can never paint into a newer paper.
-    textLayer.style.cssText = nextTextLayer.style.cssText;
-    updateCanvasAndLayersSize(canvas, textLayer, annotationLayer, viewport);
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Cannot initialize 2d canvas context");
-    context.drawImage(pageImage, 0, 0);
-    textLayer.replaceChildren(...nextTextLayer.childNodes);
-    annotationLayer.replaceChildren();
-
-    setPage(pageNumber);
-    pageRef.current = pageNumber;
-    setPageJumpInput(String(pageNumber));
-
-    const openDoc = openDocumentRef.current;
-    if (openDoc && !isStale()) {
-      callbacksRef.current.onProgress(
-        pageNumber,
-        activeZoom,
-        openDoc,
-        followsWidthRef.current ? "fit" : "manual",
+      const nextTextLayer = document.createElement("div");
+      nextTextLayer.className = "text-layer";
+      nextTextLayer.style.setProperty(
+        "--total-scale-factor",
+        String(viewport.scale * viewport.userUnit),
       );
-      if (emitPageChange) {
-        await callbacksRef.current.onPageChange(pageNumber, activeDoc.numPages, openDoc.sessionId);
+      const pdfTextLayer = new pdfjsLib.TextLayer({
+        textContentSource: textContent,
+        container: nextTextLayer,
+        viewport,
+      });
+      frame.cancelRender = () => pdfTextLayer.cancel();
+      try {
+        await pdfTextLayer.render();
+      } catch (error) {
+        if (isStale()) {
+          return;
+        }
+        throw error;
+      } finally {
+        if (!isStale()) frame.cancelRender = undefined;
       }
       if (isStale()) {
         return;
       }
-    }
 
-    if (!isStale()) {
-      prerenderPageToCache(pageNumber + 1, activeDoc, generation).catch(() => {});
-      prerenderPageToCache(pageNumber - 1, activeDoc, generation).catch(() => {});
-    }
-  }
-
-  async function prerenderPageToCache(
-    pageNumber: number,
-    docOverride?: PDFDocumentProxy,
-    generationOverride?: number,
-  ): Promise<void> {
-    const generation = generationOverride ?? documentGenerationRef.current;
-    const doc = docOverride ?? pdfDocRef.current;
-    if (
-      !doc ||
-      !isCurrentDocument(generation, doc) ||
-      pageNumber < 1 ||
-      pageNumber > doc.numPages
-    ) {
-      return;
-    }
-    const activeZoom = zoomRef.current;
-    const cached = pageCacheRef.current.get(pageNumber);
-    if (cached && Math.abs(cached.zoom - activeZoom) < 0.001) return;
-    const pdfPage = await doc.getPage(pageNumber);
-    if (!isCurrentDocument(generation, doc)) {
-      return;
-    }
-    const viewport = pdfPage.getViewport({ scale: activeZoom });
-    const offscreen = document.createElement("canvas");
-    offscreen.width = viewport.width;
-    offscreen.height = viewport.height;
-    const ctx = offscreen.getContext("2d");
-    if (!ctx) return;
-    const renderTask = pdfPage.render({ canvas: offscreen, canvasContext: ctx, viewport });
-    try {
-      await renderTask.promise;
-    } catch (error) {
-      if (!isCurrentDocument(generation, doc)) {
+      const textModel = cachePageText(pageNumber, textContent.items);
+      for (let i = 0; i < pdfTextLayer.textDivs.length; i++) {
+        const div = pdfTextLayer.textDivs[i];
+        const str = pdfTextLayer.textContentItemsStr[i] ?? "";
+        div.dataset.content = str;
+        div.dataset.start = String(textModel.spans[i].start);
+        div.dataset.end = String(textModel.spans[i].end);
+      }
+      if (isStale()) {
         return;
       }
-      throw error;
-    }
-    const textContent = await pdfPage.getTextContent();
-    if (!isCurrentDocument(generation, doc)) {
-      return;
-    }
-    const bitmap = await createImageBitmap(offscreen);
-    if (!isCurrentDocument(generation, doc) || Math.abs(zoomRef.current - activeZoom) > 0.001) {
-      disposeBitmap(bitmap);
-      return; // zoom changed, discard
-    }
-    setPageCacheEntry(pageNumber, { bitmap, textContent, viewport, zoom: activeZoom });
-    if (!pageTextCacheRef.current.has(pageNumber)) {
-      cachePageText(pageNumber, textContent.items);
+
+      // Canvas, text and annotation geometry commit together, after the last
+      // ownership check. A superseded render can never paint into a newer paper.
+      textLayer.style.cssText = nextTextLayer.style.cssText;
+      updateCanvasAndLayersSize(canvas, textLayer, annotationLayer, viewport);
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Cannot initialize 2d canvas context");
+      context.drawImage(pageImage, 0, 0);
+      textLayer.replaceChildren(...nextTextLayer.childNodes);
+      annotationLayer.replaceChildren();
+
+      frame.ready = true;
+      frame.element.setAttribute("aria-busy", "false");
+      frame.element.removeAttribute("data-error");
+      setLayersRevision((value) => value + 1);
+    };
+    const rendering = work();
+    frame.rendering = rendering;
+    try {
+      await rendering;
+    } catch (error) {
+      if (!isStale()) {
+        frame.element.dataset.error = "Page could not be rendered";
+        frame.element.setAttribute("aria-busy", "false");
+        throw error;
+      }
+    } finally {
+      if (frame.rendering === rendering) frame.rendering = undefined;
     }
   }
+
+  function activatePage(frame: DocumentPage): void {
+    if (pdfCanvasRef.current !== frame.canvas) {
+      pdfCanvasRef.current?.removeAttribute("id");
+      textLayerRef.current?.removeAttribute("id");
+      annotationLayerRef.current?.removeAttribute("id");
+      frame.canvas.id = "pdfCanvas";
+      frame.textLayer.id = "textLayer";
+      frame.annotationLayer.id = "annotationLayer";
+      pdfCanvasRef.current = frame.canvas;
+      textLayerRef.current = frame.textLayer;
+      annotationLayerRef.current = frame.annotationLayer;
+    }
+    if (pageRef.current !== frame.number) {
+      setPageJumpInput(String(frame.number));
+    }
+    pageRef.current = frame.number;
+    setPage(frame.number);
+  }
+
+  async function reportProgress(emitPageChange: boolean): Promise<void> {
+    const doc = pdfDocRef.current;
+    const openDoc = openDocumentRef.current;
+    const frame = pagesRef.current[pageRef.current - 1];
+    if (!doc || !openDoc || !frame?.ready) return;
+    const key = `${documentGenerationRef.current}:${frame.number}:${zoomRef.current}`;
+    if (lastReportedRef.current === key) return;
+    lastReportedRef.current = key;
+    callbacksRef.current.onProgress(
+      frame.number,
+      zoomRef.current,
+      openDoc,
+      followsWidthRef.current ? "fit" : "manual",
+    );
+    if (emitPageChange) {
+      await callbacksRef.current.onPageChange(frame.number, doc.numPages, openDoc.sessionId);
+    }
+  }
+
+  function stagePadding(): number {
+    const stage = pdfStageRef.current;
+    return stage ? Number.parseFloat(getComputedStyle(stage).paddingTop) || 0 : 0;
+  }
+
+  function pagesAreAttached(): boolean {
+    return (
+      !!pagesRef.current.length && pagesRef.current[0].element.parentElement === pdfPagesRef.current
+    );
+  }
+
+  /** Paint visible pages plus a viewport of overscan, with bounded rendering work. */
+  async function renderViewport(): Promise<void> {
+    const stage = pdfStageRef.current;
+    if (!stage || !pagesAreAttached()) return;
+    const frames = pagesRef.current;
+    const top = stage.scrollTop - stagePadding();
+    const height = stage.clientHeight;
+    const selection = window.getSelection();
+    const nearby = frames
+      .filter((frame) => {
+        const keep = frame.top + frame.height >= top - height && frame.top <= top + height * 2;
+        // Keep an in-progress selection intact even if the user scrolls it away.
+        const selected =
+          !!selection?.rangeCount &&
+          (frame.element.contains(selection.anchorNode) ||
+            frame.element.contains(selection.focusNode));
+        if (!keep && !selected && (frame.ready || frame.rendering)) releaseDocumentPage(frame);
+        return keep;
+      })
+      .sort((a, b) => Math.abs(a.number - pageRef.current) - Math.abs(b.number - pageRef.current));
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+      while (cursor < nearby.length && frames === pagesRef.current) {
+        const frame = nearby[cursor++];
+        // A more recent scroll may have moved the window while the prior page painted.
+        const currentTop = stage.scrollTop - stagePadding();
+        if (frame.top + frame.height < currentTop - height || frame.top > currentTop + height * 2)
+          continue;
+        await paintPage(frame);
+      }
+    };
+    await Promise.all([worker(), worker()]);
+    if (frames === pagesRef.current) await reportProgress(true);
+  }
+
+  function refreshViewport(): void {
+    const generation = documentGenerationRef.current;
+    void renderViewport().catch((error: unknown) => {
+      if (documentGenerationRef.current === generation) {
+        setRenderError(error instanceof Error ? error.message : "Unable to render this page");
+      }
+    });
+  }
+
+  function handleStageScroll(): void {
+    const stage = pdfStageRef.current;
+    if (!stage || !pagesAreAttached()) return;
+    const frame = pageAtOffset(
+      pagesRef.current,
+      stage.scrollTop - stagePadding() + Math.min(120, stage.clientHeight / 4),
+    );
+    if (frame) activatePage(frame);
+    refreshViewport();
+  }
+
+  /** Explicit navigation scrolls within the same document; it never replaces its extent. */
+  async function renderPage(pageNumber: number, emitPageChange: boolean): Promise<void> {
+    const frame = pagesRef.current[pageNumber - 1];
+    const stage = pdfStageRef.current;
+    if (!frame || !stage || !pagesAreAttached()) return;
+    const token = ++renderTokenRef.current;
+    activatePage(frame);
+    stage.scrollTop = frame.top;
+    setRenderError("");
+    refreshViewport();
+    await paintPage(frame);
+    if (token !== renderTokenRef.current || pagesRef.current[pageNumber - 1] !== frame) return;
+    await reportProgress(emitPageChange);
+  }
+
+  async function rebuildPages(pageNumber: number, fraction = 0): Promise<void> {
+    const stage = pdfStageRef.current;
+    const root = pdfPagesRef.current;
+    if (!stage || !root) return;
+    const token = ++renderTokenRef.current;
+    const oldFrames = pagesRef.current;
+    for (const frame of oldFrames) {
+      frame.revision += 1;
+      frame.cancelRender?.();
+    }
+    const frames = createDocumentPages(sizesRef.current, zoomRef.current);
+    pagesRef.current = frames;
+    const target = frames[pageNumber - 1];
+    if (!target) return;
+    // Keep the previous paper/zoom visible until the new target has pixels and text.
+    await paintPage(target);
+    if (pagesRef.current !== frames || token !== renderTokenRef.current) return;
+    root.replaceChildren(...frames.map((frame) => frame.element));
+    root.style.width = `${sizesRef.current.reduce((width, size) => Math.max(width, size.width), 0) * zoomRef.current}px`;
+    activatePage(target);
+    setPageJumpInput(String(pageNumber));
+    stage.scrollTop = target.top + target.height * fraction;
+    setLayersRevision((value) => value + 1);
+    for (const frame of oldFrames) releaseDocumentPage(frame);
+    refreshViewport();
+  }
+
+  const getRenderedPages = useCallback((): DocumentPage[] => {
+    return pagesRef.current[0]?.element.parentElement === pdfPagesRef.current
+      ? pagesRef.current.filter((frame) => frame.ready)
+      : [];
+  }, [pdfPagesRef]);
+
+  /** Resolve the selected page from its DOM owner, not the toolbar's reading position. */
+  function getSelectionPage(): DocumentPage | undefined {
+    const selection = window.getSelection();
+    if (!selection?.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    return getRenderedPages().find((frame) =>
+      frame.textLayer.contains(range.commonAncestorContainer),
+    );
+  }
+
+  useEffect(() => {
+    return () => {
+      documentGenerationRef.current += 1;
+      for (const frame of pagesRef.current) releaseDocumentPage(frame);
+      void loadingTaskRef.current?.destroy().catch(() => {});
+    };
+  }, []);
 
   async function resolveOutlinePage(doc: PDFDocumentProxy, dest: unknown): Promise<number | null> {
     if (!dest) {
@@ -567,15 +662,6 @@ export function usePdfReader(params: PdfReaderParams) {
           return;
         }
         pageRef.current = clamp(preferredPage, 1, doc.numPages);
-        if (followsWidthRef.current) {
-          const fitted = await widthFittingScale(generation, doc);
-          if (!isCurrentDocument(generation, doc)) {
-            return;
-          }
-          if (fitted !== null) {
-            setZoomLevel(fitted);
-          }
-        }
         if (!isCurrentDocument(generation, doc)) {
           return;
         }
@@ -588,11 +674,33 @@ export function usePdfReader(params: PdfReaderParams) {
           );
         }
         const normalizedPage = clamp(preferredPage, 1, doc.numPages);
-        await renderPage(normalizedPage, true, doc, generation);
-        if (isCurrentDocument(generation, doc) && pdfStageRef.current) {
-          pdfStageRef.current.scrollTop = 0;
-          pdfStageRef.current.scrollLeft = 0;
+        // Read page dimensions, not rasters, so the scrollbar has the correct
+        // whole-document extent from the moment the paper becomes interactive.
+        const sizes: PageSize[] = new Array(doc.numPages);
+        let next = 1;
+        const readSizes = async (): Promise<void> => {
+          while (next <= doc!.numPages && isCurrentDocument(generation, doc!)) {
+            const number = next++;
+            const pdfPage = await doc!.getPage(number);
+            const viewport = pdfPage.getViewport({ scale: 1 });
+            sizes[number - 1] = { width: viewport.width, height: viewport.height };
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(4, doc.numPages) }, readSizes));
+        if (!isCurrentDocument(generation, doc)) return;
+        sizesRef.current = sizes;
+        if (followsWidthRef.current) {
+          const fitted = await widthFittingScale(generation, doc);
+          if (!isCurrentDocument(generation, doc)) {
+            return;
+          }
+          if (fitted !== null) {
+            setZoomLevel(fitted);
+          }
         }
+        if (pdfStageRef.current) pdfStageRef.current.scrollLeft = 0;
+        await rebuildPages(normalizedPage);
+        if (isCurrentDocument(generation, doc)) await reportProgress(true);
       } catch (error) {
         if (loadingTask === null) {
           throw error;
@@ -663,13 +771,19 @@ export function usePdfReader(params: PdfReaderParams) {
         );
       return;
     }
+    const oldFrame = pagesRef.current[pageRef.current - 1];
+    const fraction =
+      oldFrame && pdfStageRef.current
+        ? (pdfStageRef.current.scrollTop - oldFrame.top) / oldFrame.height
+        : 0;
     clearPageCache();
     setZoomLevel(normalized);
     await callbacksRef.current.onZoomChange(normalized, pageRef.current);
     if (!isCurrentDocument(generation, doc)) {
       return;
     }
-    await renderPage(pageRef.current, false, doc, generation);
+    await rebuildPages(pageRef.current, fraction);
+    if (isCurrentDocument(generation, doc)) await reportProgress(false);
   }
 
   async function fitWidth(options: { manual?: boolean } = {}): Promise<void> {
@@ -707,11 +821,12 @@ export function usePdfReader(params: PdfReaderParams) {
     if (!doc || !stage || stage.clientWidth <= 0 || !isCurrentDocument(generation, doc)) {
       return null;
     }
-    const activePage = await doc.getPage(pageRef.current);
-    if (!isCurrentDocument(generation, doc)) {
-      return null;
+    let pageWidth = sizesRef.current.reduce((width, size) => Math.max(width, size.width), 0);
+    if (!pageWidth) {
+      const activePage = await doc.getPage(pageRef.current);
+      if (!isCurrentDocument(generation, doc)) return null;
+      pageWidth = activePage.getViewport({ scale: 1 }).width;
     }
-    const baseViewport = activePage.getViewport({ scale: 1 });
     const computedStyle = window.getComputedStyle(stage);
     const paddingLeft = Number.parseFloat(computedStyle.paddingLeft) || 0;
     const paddingRight = Number.parseFloat(computedStyle.paddingRight) || 0;
@@ -719,7 +834,7 @@ export function usePdfReader(params: PdfReaderParams) {
       0,
       stage.clientWidth - paddingLeft - paddingRight - STAGE_GUTTER_PX,
     );
-    return contentWidth > 0 ? Math.min(contentWidth / baseViewport.width, MAX_ZOOM) : null;
+    return contentWidth > 0 ? Math.min(contentWidth / pageWidth, MAX_ZOOM) : null;
   }
 
   /** Refit after the stage resizes, but only while the page is following it. */
@@ -728,38 +843,6 @@ export function usePdfReader(params: PdfReaderParams) {
       return;
     }
     void fitWidth({ manual: false });
-  }
-
-  /** Page-turn on wheel at the top/bottom of the stage. */
-  function handleStageWheel(event: WheelEvent): void {
-    const stage = pdfStageRef.current;
-    if (!stage || isChangingPageRef.current) {
-      return;
-    }
-    const atBottom = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 2;
-    const atTop = stage.scrollTop <= 0;
-    const doc = pdfDocRef.current;
-    if (event.deltaY > 0 && atBottom && doc && pageRef.current < doc.numPages) {
-      isChangingPageRef.current = true;
-      renderPage(pageRef.current + 1, true)
-        .then(() => {
-          if (pdfStageRef.current) pdfStageRef.current.scrollTop = 0;
-        })
-        .catch(() => {})
-        .finally(() => {
-          isChangingPageRef.current = false;
-        });
-    } else if (event.deltaY < 0 && atTop && pageRef.current > 1) {
-      isChangingPageRef.current = true;
-      renderPage(pageRef.current - 1, true)
-        .then(() => {
-          if (pdfStageRef.current) pdfStageRef.current.scrollTop = pdfStageRef.current.scrollHeight;
-        })
-        .catch(() => {})
-        .finally(() => {
-          isChangingPageRef.current = false;
-        });
-    }
   }
 
   return {
@@ -786,6 +869,10 @@ export function usePdfReader(params: PdfReaderParams) {
     applyZoom,
     fitWidth,
     refitToStage,
-    handleStageWheel,
+    handleStageScroll,
+    getRenderedPages,
+    getSelectionPage,
+    layersRevision,
+    renderError,
   };
 }

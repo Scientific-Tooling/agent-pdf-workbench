@@ -176,5 +176,8 @@ test("out-of-range pages and ambiguous quotes are rejected", async ({ page, requ
     await page.goto(`/?${query}`);
     await expect(page.locator("#statusText")).toContainText(message);
     await expect(page.locator(".annotation-mark.selected")).toHaveCount(0);
+    await expect(page.locator(".text-layer span").first()).toBeVisible();
+    await expect(page.locator("#annotationList")).toContainText(quote);
+    await expect(page.locator("#sessionInfo")).toHaveText(session.id);
   }
 });

@@ -249,6 +249,17 @@ export function App() {
     openDocument,
     loadWorkspaceFor,
     focusPassage: async (annotation: Annotation, isCurrent: () => boolean) => {
+      const doc = pdfDocRef.current;
+      if (!doc || !isCurrent()) return;
+      if (
+        !Number.isInteger(annotation.page) ||
+        annotation.page < 1 ||
+        annotation.page > doc.numPages
+      ) {
+        throw new Error(
+          `Cited page ${annotation.page} is outside this PDF (1–${doc.numPages}). Repair the source anchor.`,
+        );
+      }
       const text = await ensurePageText(annotation.page);
       if (!isCurrent()) return;
       const anchor = annotation.anchor ?? {

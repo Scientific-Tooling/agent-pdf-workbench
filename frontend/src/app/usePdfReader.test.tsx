@@ -317,3 +317,25 @@ it("bounds rasters and cached bitmaps through 30 pages without emitting events f
   expect(model.page).toBe(30);
   expect(params.onPageChange).toHaveBeenCalledTimes(30);
 });
+
+it("loads a verified document independently of an invalid preferred citation page", async () => {
+  queuePdf("Retained source", 600);
+  const bytes = new Uint8Array([1, 2, 3]);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({ ok: true, arrayBuffer: async () => bytes.buffer })),
+  );
+  await act(async () =>
+    model.openDocument({
+      sessionId: "cited",
+      paperRef: "cited",
+      pdfUri: "/cited.pdf",
+      expectedSha256: "a".repeat(64),
+      page: 99,
+    }),
+  );
+  expect(model.pdfDoc?.numPages).toBe(1);
+  expect(model.page).toBe(1);
+  expect(params.textLayerRef.current!.textContent).toBe("Retained source");
+  expect(pdfjs.getDocument).toHaveBeenCalledWith({ data: bytes });
+});

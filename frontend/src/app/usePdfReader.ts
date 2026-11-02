@@ -665,14 +665,9 @@ export function usePdfReader(params: PdfReaderParams) {
         if (!isCurrentDocument(generation, doc)) {
           return;
         }
-        if (
-          expectedSha256 &&
-          (!Number.isInteger(preferredPage) || preferredPage < 1 || preferredPage > doc.numPages)
-        ) {
-          throw new Error(
-            `Cited page ${preferredPage} is outside this PDF (1–${doc.numPages}). Repair the source anchor.`,
-          );
-        }
+        // Loading verified source bytes is independent of resolving a citation.
+        // Passage validation runs after the document and saved annotations load,
+        // so an invalid target cannot discard an otherwise readable paper.
         const normalizedPage = clamp(preferredPage, 1, doc.numPages);
         // Read page dimensions, not rasters, so the scrollbar has the correct
         // whole-document extent from the moment the paper becomes interactive.
